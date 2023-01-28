@@ -1,0 +1,46 @@
+# Beat tracking example
+import librosa
+import numpy as np
+import sounddevice as sd
+import matplotlib.pyplot as plt
+import time
+
+
+RATE = 44100
+RECORD_SECONDS = 2
+sample_seconds = 20
+chunk = int(RECORD_SECONDS*RATE)
+def get_mic_name():
+    "Uses sounddevice to get the name of the mic in case it changed"
+    s = sd.query_devices()
+    audio = f"""{s[1]["name"]})"""
+    return audio
+
+print(get_mic_name())
+audiomemory = np.zeros(RATE*sample_seconds)
+i = 0
+#calculating a tempo estimate every record_second intervall. 
+while i < 50:
+    frames = sd.rec(int(RECORD_SECONDS*RATE), channels  = 2, samplerate=RATE)[:,1]
+    start = time.time()
+    tempo, beat_frames = librosa.beat.beat_track(y=audiomemory, sr=RATE, start_bpm = 120)
+    runtime = time.time()-start
+    sd.wait()
+    
+    audiomemory = np.append(audiomemory[chunk:], frames)
+    
+    print('Estimated tempo: {:.2f} bpm, runtime:{:.2f} ['.format(tempo, runtime))
+    
+    
+
+
+# 3. Run the default beat tracker
+
+print('Estimated tempo: {:.2f} beats per minute'.format(tempo))
+print(frames.shape)
+#plt.plot(ys)
+plt.plot(frames)
+plt.show()
+# 4. Convert the frame indices of beat events into timestamps
+beat_times = librosa.frames_to_time(beat_frames, sr=RATE)
+print(beat_times)
