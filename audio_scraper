@@ -1,0 +1,40 @@
+import numpy as np
+import pytube as pt
+import librosa
+import os
+
+class audio_scraper():
+    def __init__(self, track_directory, output_directory, training_window) -> None:
+        self.track_directory = track_directory
+        self.training_window = training_window
+        self.output_directory = output_directory
+    
+    def download(self, playlist_url):
+        playlist = pt.Playlist(playlist_url)
+        n = len(playlist)
+        print('Number of Songs: {:.2f}'.format(n))
+        i=1
+        for video in playlist.videos:
+            stream = video.streams.filter(only_audio=True).order_by('abr').last()   #get the audio stream with the highest bitrate
+            stream.download(output_path= self.track_directory)
+            print(i,'/',n, video.title, stream)
+            i+=1
+
+    def analyze(self):
+        audio = np.array([], dtype  = 'float32')
+        flags = np.array([], dtype = 'uint32')
+        for filename in os.listdir(self.track_directory):
+            path = os.path.join(self.track_directory, filename)
+            y, sr = librosa.load(path,)
+            tempo, beats = librosa.beat.beat_track(y=y, sr=sr, start_bpm = 120)
+            beats = np.delete(beats, np.where(beats < self.training_window*sr))     #getting rid of the beats that would result in training on parts of the previous track
+            audio = np.append(audio, y)
+            flags = np.append(flags, beats + len(audio))
+        np.save(os.path.join(self.output_directory, 'audio'), audio)
+        np.save(os.path.join(self.output_directory, 'flags'), flags)
+        
+playlist_url = ''
+
+myaudioanalyzer = audio_scraper('E:\musik\\trainingsmusic\\ghettotech', 'E:\musik\\trainingsmusic', 6)
+myaudioanalyzer.download(playlist_url)
+myaudioanalyzer.analyze()
