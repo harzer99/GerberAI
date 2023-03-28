@@ -11,8 +11,7 @@ class Beat_detector:
         self.update_time = update_time
         self.analyze_time = analyze_time
         self.futurebeats = np.zeros(3)
-        self.analyze(self.sr, self.analyze_time, self.update_time)
-        
+        self.analyze(self.sr, self.analyze_time, self.update_time) 
 
     def get_device_name(self):
         "Uses sounddevice to get the name of the mic in case it changed"
@@ -47,7 +46,7 @@ class Beat_detector:
 
             runtime = time.time()-t_1
             sd.wait()
-            self.futurebeats = [1,2,3]
+            
             audiomemory = np.append(audiomemory[chunk:], frames)
             print('Estimated tempo: {:.2f} bpm, runtime:{:.2f} '.format(tempo, runtime,))
             print(self.futurebeats)

@@ -3,7 +3,7 @@ import pytube as pt
 import librosa
 import os
 
-class audio_scraper():
+class AudioScraper():
     def __init__(self, track_directory, output_directory, training_window) -> None:
         self.track_directory = track_directory
         self.training_window = training_window
@@ -35,6 +35,6 @@ class audio_scraper():
         
 playlist_url = ''
 
-myaudioanalyzer = audio_scraper('E:\musik\\trainingsmusic\\ghettotech', 'E:\musik\\trainingsmusic', 6)
+myaudioanalyzer = AudioScraper('E:\musik\\trainingsmusic\\ghettotech', 'E:\musik\\trainingsmusic', 6)
 myaudioanalyzer.download(playlist_url)
 myaudioanalyzer.analyze()

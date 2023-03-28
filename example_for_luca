@@ -9,7 +9,7 @@ os.chdir(os.getcwd())
 
 sr = 5500
 RECORD_SECONDS = 2
-y, sr = librosa.load('E:\musik\Tim Download Gerberei 2019\Dax J\Chaos Come To Conquer EP\\03 Speedball.mp3')
+y, sr = librosa.load('pathtoaudiofile')
 tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
 #calculating a tempo estimate every record_second intervall. 
 np.save('audio', y)
