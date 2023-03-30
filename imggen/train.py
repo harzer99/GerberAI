@@ -38,12 +38,16 @@ def load_dataset():
     return TensorDataset(torch.stack(images), torch.stack(tracks))
 
 
-def sample_image(generator, embedding, dataset, n, filename):
+def sample_image(generator, embedding, dataset, n, filename, cuda):
     generator.eval()
     embedding.eval()
 
     # sample from dataset
     real_imgs, tracks = next(iter(DataLoader(dataset, batch_size=n, shuffle=True)))
+
+    if cuda:
+        real_imgs = real_imgs.cuda()
+        tracks = tracks.cuda()
 
     with torch.no_grad():
         track_embs = embedding(tracks)
@@ -56,7 +60,7 @@ def sample_image(generator, embedding, dataset, n, filename):
         output_imgs.append(gen_imgs[i])
 
 
-    save_image(torch.stack(output_imgs).data, filename, nrow=2, normalize=True, value_range=(0, 255))
+    save_image(torch.stack(output_imgs).cpu().data, filename, nrow=2, normalize=True, value_range=(0, 255))
 
 
 
@@ -89,6 +93,7 @@ LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
 if cuda:
     generator.cuda()
     discriminator.cuda()
+    embedding.cuda()
     adversarial_loss.cuda()
 
 
@@ -104,6 +109,10 @@ for epoch in range(n_epochs):
     for i, (imgs, tracks) in enumerate(dataloader):
 
         batch_size = imgs.shape[0]
+
+        # Configure input
+        real_imgs = Variable(imgs.type(FloatTensor))
+        tracks = Variable(tracks.type(FloatTensor))
 
         # Adversarial ground truths
         valid = Variable(FloatTensor(batch_size, 1).fill_(1.0), requires_grad=False)
@@ -141,9 +150,6 @@ for epoch in range(n_epochs):
         optimizer_G.zero_grad()
         optimizer_D.zero_grad()
 
-        # Configure input
-        real_imgs = Variable(imgs.type(FloatTensor))
-
         # Loss for real images
         validity_real = discriminator(real_imgs, track_embs.detach())
         d_real_loss = adversarial_loss(validity_real, valid)
@@ -163,4 +169,4 @@ for epoch in range(n_epochs):
             % (epoch, n_epochs, i, len(dataloader), d_loss.item(), g_loss.item())
         )
 
-    sample_image(generator, embedding, dataset, 4, f'output/epoch{epoch:03d}.png')
+    sample_image(generator, embedding, dataset, 4, f'output/epoch{epoch:03d}.png', cuda)
