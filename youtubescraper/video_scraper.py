@@ -46,7 +46,13 @@ def get_frames(seek, video_stream):
         video.release()
         os.remove(filename)
         return np.array(frames)
-    
+
+def compare_frames(frames, threshhold):
+     if np.mean(np.abs(frames[-1]-frames[0])) < threshhold:
+          return True
+     else:
+          return False
+
 def filter_motionvids(url):
 
     if url in still_videos or url in motion_videos:
@@ -55,23 +61,31 @@ def filter_motionvids(url):
     try:
         frame = json.loads(subprocess.run(["yt-dlp", url, '-j', '--skip-download'], capture_output=True, text=True).stdout)
         duration = frame['duration']
+        if duration > 600:
+             return
 
         video_stream, audio_stream = subprocess.run(["yt-dlp", url, '-g', '-f', 'worst[vcodec!=none][ext!=3gp],worst[acodec!=none][ext!=3gp]'], capture_output=True, text=True).stdout.split('\n')[:2]
         #print(f'open stream for {url}')
 
-        for i in range(1):
+        seek = np.random.uniform(low = 5, high = duration-5)
+        frames= get_frames(seek, video_stream)
+        threshhold = 40
+        if compare_frames(frames, threshhold):
+            print('still image')
+            with open(stills_path, 'a') as out:
+                    print(url, file=out)
+            
+            
+        else:
             seek = np.random.uniform(low = 5, high = duration-5)
-            frames= get_frames(seek, video_stream)
-
-            if np.mean(np.abs(frames[-1]-frames[0])) < 40:
+            frames2= get_frames(seek, video_stream)
+            if compare_frames(frames2, threshhold):
                 print('still image')
                 with open(stills_path, 'a') as out:
                         print(url, file=out)
-                
-                
             else:
                 with open(motions_path, 'a') as out:
-                        print(url, file=out) 
+                    print(url, file=out) 
     except:
          print('download failed')
     
@@ -101,6 +115,6 @@ class Video_Scraper():
     
                 
 if __name__ == '__main__':
-    playlisturl = ''
+    playlisturl = open('youtubescraper\\playlisturl.txt', 'r').read()
     myvideoscraper = Video_Scraper(playlisturl)
     myvideoscraper.run()
