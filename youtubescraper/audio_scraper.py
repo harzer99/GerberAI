@@ -43,28 +43,32 @@ class audio_scraper():
     def analyze(self):
         audio = np.array([], dtype  = 'float32')
         flags = np.array([], dtype = 'int64')
+        
         for filename in tqdm(os.listdir(self.track_directory), desc='rewriting to trainingdata'):
-            path = os.path.join(self.track_directory, filename)
-            y, sr = librosa.load(path)
-            y = librosa.to_mono(y)
-            tempo, beats = librosa.beat.beat_track(y=y, sr=sr, start_bpm = 120)
-            beats = librosa.frames_to_time(beats, sr=sr)
-            beats = (beats*sr).astype(int)
-            beats = np.delete(beats, np.where(beats < self.training_window*sr))     #getting rid of the beats that would result in training on parts of the previous track
-            flags = np.append(flags, beats + len(audio))
-            audio = np.append(audio, y)
-            print(np.max(flags), len(audio))
-            if sr != 22050:
-                print('differing samplerate')
+            try:
+                path = os.path.join(self.track_directory, filename)
+                y, sr = librosa.load(path)
+                y = librosa.to_mono(y)
+                tempo, beats = librosa.beat.beat_track(y=y, sr=sr, start_bpm = 120)
+                beats = librosa.frames_to_time(beats, sr=sr)
+                beats = (beats*sr).astype(int)
+                beats = np.delete(beats, np.where(beats < self.training_window*sr))     #getting rid of the beats that would result in training on parts of the previous track
+                flags = np.append(flags, beats + len(audio))
+                audio = np.append(audio, y)
+                print(np.max(flags), len(audio))
+                if sr != 22050:
+                    print('differing samplerate')
+            except: 
+                print('analyze error, skipping file')
         np.save(os.path.join(self.output_directory, 'audio'), audio)
         np.save(os.path.join(self.output_directory, 'flags'), flags)
         print(sr)
 
         
 playlist_url = ''
-output_path = 'training_data/raw_music'
+output_path = 'E:\musik\\trainingsmusic\\techno'
 
 if __name__ == '__main__':
-    myaudioanalyzer = audio_scraper('E:\musik\\trainingsmusic\ghettotech', 'E:\musik\\trainingsmusic', 6)
+    myaudioanalyzer = audio_scraper(output_path, 'E:\musik\\trainingsmusic', 6)
     #myaudioanalyzer.download(playlist_url)
     myaudioanalyzer.analyze()
