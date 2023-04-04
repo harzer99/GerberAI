@@ -24,7 +24,7 @@ def load_dataset(embedding, cuda):
         embedding.cuda()
     transform = transforms.Compose([transforms.Resize(list(IMG_SHAPE)[1:])])
     images, tracks, emb = [], [], []
-    files = list(Path('data').glob('*.wav'))
+    files = list((Path('imggen') / Path('data')).glob('*.wav'))
     for wav in tqdm(files, desc='image processing'):
         audio, sr = soundfile.read(wav)
         # resample to TARGET_SR = 48000
@@ -40,15 +40,16 @@ def load_dataset(embedding, cuda):
         images.append(img)
         tracks.append(track)
 
-    with tqdm(total=len(tracks), desc='music embedding') as pbar:
-        for track_batch in more_itertools.chunked(tracks, n=16 if cuda else 1):
-            track_batch = torch.stack(track_batch)
-            if cuda:
-                track_batch = track_batch.cuda()
+    with torch.no_grad():
+        with tqdm(total=len(tracks), desc='music embedding') as pbar:
+            for track_batch in more_itertools.chunked(tracks, n=4 if cuda else 1):
+                track_batch = torch.stack(track_batch)
+                if cuda:
+                    track_batch = track_batch.cuda()
 
-            emb.extend(embedding(track_batch))
-            pbar.update(len(track_batch))
-
+                emb.extend(embedding(track_batch).cpu())
+                pbar.update(len(track_batch))
+                del track_batch
     return TensorDataset(torch.stack(images), torch.stack(tracks), torch.stack(emb))
 
 
@@ -170,4 +171,4 @@ for epoch in range(n_epochs):
         )
 
     if epoch > 0 and epoch % 10 == 0:
-        sample_image(generator, dataset, 4, Path('output') / Path(f'epoch{epoch:03d}.png'), cuda)
+        sample_image(generator, dataset, 4, Path('imggen')/Path('output') / Path(f'epoch{epoch:03d}.png'), cuda)
