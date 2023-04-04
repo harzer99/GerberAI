@@ -1,6 +1,7 @@
 import glob
 import sys
 from pathlib import Path
+import more_itertools
 
 from tqdm import tqdm
 import numpy as np
@@ -17,10 +18,14 @@ from models import TARGET_SR, IMG_SHAPE, TRACK_EMB_DIM, Generator, Discriminator
 
 GAN_LATENT_DIM = 1000
 
-def load_dataset(embedding):
+def load_dataset(embedding, cuda):
+    embedding.eval()
+    if cuda:
+        embedding.cuda()
     transform = transforms.Compose([transforms.Resize(list(IMG_SHAPE)[1:])])
     images, tracks, emb = [], [], []
-    for wav in list(tqdm(glob.glob('./data/*.wav'))):
+    files = list(Path('data').glob('*.wav'))
+    for wav in tqdm(files, desc='image processing'):
         audio, sr = soundfile.read(wav)
         # resample to TARGET_SR = 48000
         track = torch.tensor(resampy.resample(
@@ -30,11 +35,19 @@ def load_dataset(embedding):
                 filter="kaiser_best",
             )).to(torch.float32)
 
-        img = transform(read_image(wav.replace('.wav', '.png')))
+        img = transform(read_image(str(wav).replace('.wav', '.png')))
 
         images.append(img)
         tracks.append(track)
-        emb.append(embedding(track.unsqueeze(0))[0])
+
+    with tqdm(total=len(tracks), desc='music embedding') as pbar:
+        for track_batch in more_itertools.chunked(tracks, n=16 if cuda else 1):
+            track_batch = torch.stack(track_batch)
+            if cuda:
+                track_batch = track_batch.cuda()
+
+            emb.extend(embedding(track_batch))
+            pbar.update(len(track_batch))
 
     return TensorDataset(torch.stack(images), torch.stack(tracks), torch.stack(emb))
 
@@ -47,7 +60,7 @@ def sample_image(generator, dataset, n, filename, cuda):
 
     if cuda:
         real_imgs = real_imgs.cuda()
-        track_embs = tracks.cuda()
+        track_embs = track_embs.cuda()
 
     with torch.no_grad():
         z = Variable(FloatTensor(np.random.normal(0, 1, (n, GAN_LATENT_DIM))))
@@ -58,13 +71,14 @@ def sample_image(generator, dataset, n, filename, cuda):
         output_imgs.append(real_imgs[i])
         output_imgs.append(gen_imgs[i])
 
-
     save_image(torch.stack(output_imgs).cpu().data, filename, nrow=2, normalize=True, value_range=(0, 255))
 
 
+cuda = True if torch.cuda.is_available() else False
+
 embedding = MyAudioEmbedder()
 
-dataset = load_dataset(embedding)
+dataset = load_dataset(embedding, cuda)
 dataloader = DataLoader(
     dataset,
     batch_size=4,
@@ -82,7 +96,6 @@ discriminator = Discriminator()
 optimizer_G = torch.optim.Adam(list(generator.parameters()), lr=0.0002)
 optimizer_D = torch.optim.Adam(list(discriminator.parameters()), lr=0.0002)
 
-cuda = True if torch.cuda.is_available() else False
 FloatTensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
 
@@ -157,4 +170,4 @@ for epoch in range(n_epochs):
         )
 
     if epoch > 0 and epoch % 10 == 0:
-        sample_image(generator, dataset, 4, f'output/epoch{epoch:03d}.png', cuda)
+        sample_image(generator, dataset, 4, Path('output') / Path(f'epoch{epoch:03d}.png'), cuda)
