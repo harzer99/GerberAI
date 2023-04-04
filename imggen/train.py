@@ -2,6 +2,7 @@ import glob
 import sys
 from pathlib import Path
 
+from tqdm import tqdm
 import numpy as np
 import resampy as resampy
 import soundfile
@@ -15,13 +16,12 @@ from torchvision.utils import save_image
 from models import TARGET_SR, IMG_SHAPE, TRACK_EMB_DIM, Generator, Discriminator, MyAudioEmbedder
 
 GAN_LATENT_DIM = 1000
-TRAIN_EMBEDDING = False
 
-def load_dataset():
+def load_dataset(embedding):
     transform = transforms.Compose([transforms.Resize(list(IMG_SHAPE)[1:])])
-    images, tracks = [], []
-    for index in range(12):
-        audio, sr = soundfile.read(f'./data/{index:03d}.wav')
+    images, tracks, emb = [], [], []
+    for wav in list(tqdm(glob.glob('./data/*.wav'))):
+        audio, sr = soundfile.read(wav)
         # resample to TARGET_SR = 48000
         track = torch.tensor(resampy.resample(
                 audio,
@@ -30,27 +30,26 @@ def load_dataset():
                 filter="kaiser_best",
             )).to(torch.float32)
 
-        img = transform(read_image(f'./data/{index:03d}.png'))
+        img = transform(read_image(wav.replace('.wav', '.png')))
 
         images.append(img)
         tracks.append(track)
+        emb.append(embedding(track.unsqueeze(0))[0])
 
-    return TensorDataset(torch.stack(images), torch.stack(tracks))
+    return TensorDataset(torch.stack(images), torch.stack(tracks), torch.stack(emb))
 
 
-def sample_image(generator, embedding, dataset, n, filename, cuda):
+def sample_image(generator, dataset, n, filename, cuda):
     generator.eval()
-    embedding.eval()
 
     # sample from dataset
-    real_imgs, tracks = next(iter(DataLoader(dataset, batch_size=n, shuffle=True)))
+    real_imgs, tracks, track_embs = next(iter(DataLoader(dataset, batch_size=n, shuffle=True)))
 
     if cuda:
         real_imgs = real_imgs.cuda()
-        tracks = tracks.cuda()
+        track_embs = tracks.cuda()
 
     with torch.no_grad():
-        track_embs = embedding(tracks)
         z = Variable(FloatTensor(np.random.normal(0, 1, (n, GAN_LATENT_DIM))))
         gen_imgs = generator(z, track_embs)
 
@@ -63,8 +62,9 @@ def sample_image(generator, embedding, dataset, n, filename, cuda):
     save_image(torch.stack(output_imgs).cpu().data, filename, nrow=2, normalize=True, value_range=(0, 255))
 
 
+embedding = MyAudioEmbedder()
 
-dataset = load_dataset()
+dataset = load_dataset(embedding)
 dataloader = DataLoader(
     dataset,
     batch_size=4,
@@ -74,16 +74,12 @@ dataloader = DataLoader(
 # Loss functions
 adversarial_loss = torch.nn.BCEWithLogitsLoss()
 
-# Initialize generator and discriminator and embedding
+# Initialize generator and discriminator
 generator = Generator(GAN_LATENT_DIM)
 discriminator = Discriminator()
-embedding = MyAudioEmbedder()
 
 # Optimizers
-if TRAIN_EMBEDDING:
-    optimizer_G = torch.optim.Adam(list(generator.parameters()) + list(embedding.parameters()), lr=0.0002)
-else:
-    optimizer_G = torch.optim.Adam(list(generator.parameters()), lr=0.0002)
+optimizer_G = torch.optim.Adam(list(generator.parameters()), lr=0.0002)
 optimizer_D = torch.optim.Adam(list(discriminator.parameters()), lr=0.0002)
 
 cuda = True if torch.cuda.is_available() else False
@@ -93,7 +89,6 @@ LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
 if cuda:
     generator.cuda()
     discriminator.cuda()
-    embedding.cuda()
     adversarial_loss.cuda()
 
 
@@ -102,17 +97,14 @@ n_epochs = 200
 for epoch in range(n_epochs):
     generator.train()
     discriminator.train()
-    if TRAIN_EMBEDDING:
-        embedding.train()
-    else:
-        embedding.eval()
-    for i, (imgs, tracks) in enumerate(dataloader):
+    for i, (imgs, tracks, track_embs) in enumerate(dataloader):
 
         batch_size = imgs.shape[0]
 
         # Configure input
         real_imgs = Variable(imgs.type(FloatTensor))
-        tracks = Variable(tracks.type(FloatTensor))
+        #tracks = Variable(tracks.type(FloatTensor))
+        track_embs = Variable(track_embs.type(FloatTensor))
 
         # Adversarial ground truths
         valid = Variable(FloatTensor(batch_size, 1).fill_(1.0), requires_grad=False)
@@ -127,11 +119,6 @@ for epoch in range(n_epochs):
         # Sample noise and labels as generator input
         z = Variable(FloatTensor(np.random.normal(0, 1, (batch_size, GAN_LATENT_DIM))))
         # eigentlich müssten wir hier zufällige Embeddings aus dem Vektorraum ziehen
-        if TRAIN_EMBEDDING:
-            track_embs = embedding(tracks)
-        else:
-            with torch.no_grad():
-                track_embs = embedding(tracks).detach()
 
         # Generate a batch of images
         gen_imgs = generator(z, track_embs)
@@ -169,4 +156,5 @@ for epoch in range(n_epochs):
             % (epoch, n_epochs, i, len(dataloader), d_loss.item(), g_loss.item())
         )
 
-    sample_image(generator, embedding, dataset, 4, f'output/epoch{epoch:03d}.png', cuda)
+    if epoch > 0 and epoch % 10 == 0:
+        sample_image(generator, dataset, 4, f'output/epoch{epoch:03d}.png', cuda)
