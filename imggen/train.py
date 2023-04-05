@@ -153,8 +153,8 @@ for epoch in tqdm(range(n_epochs)):
 
         # Sample noise and labels as generator input
         z = Variable(FloatTensor(np.random.normal(0, 1, (batch_size, GAN_LATENT_DIM))))
-        random_emb = Variable(FloatTensor(np.random.normal(emb_mean, emb_std, (batch_size, TRACK_EMB_DIM))))
-        # random_emb = track_embs
+        # random_emb = Variable(FloatTensor(np.random.normal(emb_mean, emb_std, (batch_size, TRACK_EMB_DIM))))
+        random_emb = track_embs
 
         # Generate a batch of images
         gen_imgs = generator(z, random_emb)
