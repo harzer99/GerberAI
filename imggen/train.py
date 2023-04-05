@@ -19,6 +19,7 @@ from models import TARGET_SR, IMG_SHAPE, TRACK_EMB_DIM, Generator, Discriminator
 GAN_LATENT_DIM = 1000
 
 dataset_path = sys.argv[1] if len(sys.argv) > 0 else 'C:\\GerberAI\\dataset.pt'
+output_path = sys.argv[2] if len(sys.argv) > 0 else 'C:\\GerberAI\\imggen_output'
 
 def sample_image(generator, train_dataset, test_dataset, n, filename, cuda):
     generator.eval()
@@ -153,4 +154,4 @@ for epoch in tqdm(range(n_epochs)):
         # )
 
     if epoch > 0 and epoch % 10 == 0:
-        sample_image(generator, train_dataset, test_dataset, 4, Path('imggen')/Path('output') / Path(f'epoch{epoch:03d}.png'), cuda)
+        sample_image(generator, train_dataset, test_dataset, 4, Path(output_path) / Path(f'epoch{epoch:03d}.png'), cuda)
