@@ -18,7 +18,7 @@ from models import TARGET_SR, IMG_SHAPE, TRACK_EMB_DIM, Generator, Discriminator
 
 GAN_LATENT_DIM = 1000
 
-dataset_path = sys.argv[1] if len(sys.argv) > 0 else 'dataset.pt'
+dataset_path = sys.argv[1] if len(sys.argv) > 0 else 'C:\\GerberAI\\dataset.pt'
 
 def sample_image(generator, train_dataset, test_dataset, n, filename, cuda):
     generator.eval()

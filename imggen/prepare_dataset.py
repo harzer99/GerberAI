@@ -14,8 +14,8 @@ from torch.utils.data import TensorDataset
 
 from models import TARGET_SR, IMG_SHAPE
 
-input_path = sys.argv[1]
-output_path = sys.argv[2]
+input_path = sys.argv[1] if len(sys.argv) > 0 else 'C:\\GerberAI\\snippets'
+output_path = sys.argv[2]if len(sys.argv) > 0 else 'C:\\GerberAI\\dataset.pt'
 
 cuda = True if torch.cuda.is_available() else False
 
