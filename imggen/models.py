@@ -33,28 +33,29 @@ class MyAudioEmbedder(nn.Module):
 class Generator(nn.Module):
     def __init__(self, gan_latent_dim):
         super(Generator, self).__init__()
-
-        def block(in_feat, out_feat, normalize=True):
-            layers = [nn.Linear(in_feat, out_feat)]
-            if normalize:
-                layers.append(nn.BatchNorm1d(out_feat, 0.8))
-            layers.append(nn.LeakyReLU(0.2, inplace=True))
-            return layers
-
+        ngf = 64
         self.model = nn.Sequential(
-            *block(gan_latent_dim + TRACK_EMB_DIM, 128, normalize=False),
-            *block(128, 256),
-            *block(256, 512),
-            *block(512, 1024),
-            nn.Linear(1024, int(np.prod(IMG_SHAPE))),
-            nn.Tanh(),
+            # input is Z, going into a convolution
+            nn.ConvTranspose2d(gan_latent_dim + TRACK_EMB_DIM, ngf * 8, (3,4), 1, 0, bias=False),
+            nn.BatchNorm2d(ngf * 8),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf * 4),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf * 2),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(ngf, 3, 4, 2, 1, bias=False),
+            nn.Tanh()
         )
 
     def forward(self, noise, track_embeddings):
         # Concatenate label embedding and image to produce input
-        gen_input = torch.cat((track_embeddings, noise), -1)
+        gen_input = torch.cat((track_embeddings, noise), -1).unsqueeze(-1).unsqueeze(-1)
         img = self.model(gen_input)
-        img = img.view(img.size(0), *IMG_SHAPE)
 
         img = img * 128 + 128  # rescale to 0-255
         return img
@@ -64,10 +65,22 @@ class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
 
-        self.model = nn.Sequential(
-            nn.Linear(TRACK_EMB_DIM + int(np.prod(IMG_SHAPE)), 512),
+        ndf = 8
+        self.conv = nn.Sequential(
+            nn.ConvTranspose2d(3, ndf, 4, 3, 1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Linear(512, 512),
+            nn.Conv2d(ndf, ndf * 2, 4, 3, 1, bias=False),
+            nn.BatchNorm2d(ndf * 2),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(ndf * 2, ndf * 4, 4, 3, 1, bias=False),
+            nn.BatchNorm2d(ndf * 4),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(ndf * 4, ndf * 8, 4, 3, 1, bias=False),
+            nn.BatchNorm2d(ndf * 8),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.classify = nn.Sequential(
+            nn.Linear(TRACK_EMB_DIM + 2240, 512),
             nn.Dropout(0.4),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Linear(512, 512),
@@ -78,7 +91,11 @@ class Discriminator(nn.Module):
 
     def forward(self, img, track_embeddings):
         # Concatenate label embedding and image to produce input
-        d_in = torch.cat((img.view(img.size(0), -1), track_embeddings), -1)
-        validity = self.model(d_in)
+        # d_in = torch.cat((img.view(img.size(0), -1), track_embeddings), -1)
+        # validity = self.model(d_in)
+        # return validity
+        img_conv = self.conv(img)
+        d_in = torch.cat((img_conv.view(img.size(0), -1), track_embeddings), -1)
+        validity = self.classify(d_in)
         return validity
 
