@@ -9,7 +9,7 @@ import resampy as resampy
 import soundfile
 import torch
 from torch.autograd import Variable
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, random_split
 import torchvision.transforms as transforms
 from torchvision.io import read_image
 from torchvision.utils import save_image
@@ -17,6 +17,7 @@ from torchvision.utils import save_image
 from models import TARGET_SR, IMG_SHAPE, TRACK_EMB_DIM, Generator, Discriminator, MyAudioEmbedder
 
 GAN_LATENT_DIM = 1000
+
 
 def load_dataset(embedding, cuda):
     embedding.eval()
@@ -46,31 +47,46 @@ def load_dataset(embedding, cuda):
                 track_batch = torch.stack(track_batch)
                 if cuda:
                     track_batch = track_batch.cuda()
+                    emb.extend(embedding(track_batch))
+                else:
+                    emb.extend(embedding(track_batch))
 
-                emb.extend(embedding(track_batch).cpu())
                 pbar.update(len(track_batch))
                 del track_batch
-    return TensorDataset(torch.stack(images), torch.stack(tracks), torch.stack(emb))
-
-
-def sample_image(generator, dataset, n, filename, cuda):
-    generator.eval()
-
-    # sample from dataset
-    real_imgs, tracks, track_embs = next(iter(DataLoader(dataset, batch_size=n, shuffle=True)))
 
     if cuda:
-        real_imgs = real_imgs.cuda()
-        track_embs = track_embs.cuda()
+        return TensorDataset(torch.stack(images).cuda(), torch.stack(emb).cuda())
+    else:
+        return TensorDataset(torch.stack(images), torch.stack(emb))
 
-    with torch.no_grad():
-        z = Variable(FloatTensor(np.random.normal(0, 1, (n, GAN_LATENT_DIM))))
-        gen_imgs = generator(z, track_embs)
+
+def sample_image(generator, train_dataset, test_dataset, n, filename, cuda):
+    generator.eval()
+
+    def generate_images(track_embs):
+        if cuda:
+            track_embs = track_embs.cuda()
+        with torch.no_grad():
+            generator.eval()
+            z = Variable(FloatTensor(np.random.normal(0, 1, (n, GAN_LATENT_DIM))))
+            gen_imgs = generator(z, track_embs)
+        return gen_imgs.cpu()
 
     output_imgs = []
-    for i in range(n):
-        output_imgs.append(real_imgs[i])
-        output_imgs.append(gen_imgs[i])
+
+    # sample from train dataset
+    real_imgs, track_embs = next(iter(DataLoader(train_dataset, batch_size=n, shuffle=True)))
+    gen_imgs = generate_images(track_embs)
+    for real_img, gen_img in zip(real_imgs, gen_imgs):
+        output_imgs.append(real_img)
+        output_imgs.append(gen_img)
+
+    # repeat from test dataset
+    real_imgs, track_embs = next(iter(DataLoader(test_dataset, batch_size=n, shuffle=False)))
+    gen_imgs = generate_images(track_embs)
+    for real_img, gen_img in zip(real_imgs, gen_imgs):
+        output_imgs.append(real_img)
+        output_imgs.append(gen_img)
 
     save_image(torch.stack(output_imgs).cpu().data, filename, nrow=2, normalize=True, value_range=(0, 255))
 
@@ -80,11 +96,12 @@ cuda = True if torch.cuda.is_available() else False
 embedding = MyAudioEmbedder()
 
 dataset = load_dataset(embedding, cuda)
-dataloader = DataLoader(
-    dataset,
-    batch_size=4,
-    shuffle=True
-)
+test_size = 4
+train_dataset, test_dataset = random_split(dataset, [len(dataset)-test_size, test_size])
+
+# mean/std for sampling in the embedding space
+_, music_emb = dataset.tensors
+emb_std, emb_mean = torch.std_mean(music_emb.cpu(), axis=0)
 
 # Loss functions
 adversarial_loss = torch.nn.BCEWithLogitsLoss()
@@ -106,18 +123,22 @@ if cuda:
     adversarial_loss.cuda()
 
 
+dataloader = DataLoader(
+    train_dataset,
+    batch_size=4,
+    shuffle=True
+)
 
 n_epochs = 200
-for epoch in range(n_epochs):
+for epoch in tqdm(range(n_epochs)):
     generator.train()
     discriminator.train()
-    for i, (imgs, tracks, track_embs) in enumerate(dataloader):
+    for i, (imgs, track_embs) in enumerate(dataloader):
 
         batch_size = imgs.shape[0]
 
         # Configure input
         real_imgs = Variable(imgs.type(FloatTensor))
-        #tracks = Variable(tracks.type(FloatTensor))
         track_embs = Variable(track_embs.type(FloatTensor))
 
         # Adversarial ground truths
@@ -132,13 +153,14 @@ for epoch in range(n_epochs):
 
         # Sample noise and labels as generator input
         z = Variable(FloatTensor(np.random.normal(0, 1, (batch_size, GAN_LATENT_DIM))))
-        # eigentlich müssten wir hier zufällige Embeddings aus dem Vektorraum ziehen
+        random_emb = Variable(FloatTensor(np.random.normal(emb_mean, emb_std, (batch_size, TRACK_EMB_DIM))))
+        # random_emb = track_embs
 
         # Generate a batch of images
-        gen_imgs = generator(z, track_embs)
+        gen_imgs = generator(z, random_emb)
 
         # Loss measures generator's ability to fool the discriminator
-        validity = discriminator(gen_imgs, track_embs)
+        validity = discriminator(gen_imgs, random_emb)
         g_loss = adversarial_loss(validity, valid)
 
         g_loss.backward()
@@ -152,11 +174,11 @@ for epoch in range(n_epochs):
         optimizer_D.zero_grad()
 
         # Loss for real images
-        validity_real = discriminator(real_imgs, track_embs.detach())
+        validity_real = discriminator(real_imgs, track_embs)
         d_real_loss = adversarial_loss(validity_real, valid)
 
         # Loss for fake images
-        validity_fake = discriminator(gen_imgs.detach(), track_embs.detach())
+        validity_fake = discriminator(gen_imgs.detach(), random_emb)
         d_fake_loss = adversarial_loss(validity_fake, fake)
 
         # Total discriminator loss
@@ -165,10 +187,10 @@ for epoch in range(n_epochs):
         d_loss.backward()
         optimizer_D.step()
 
-        print(
-            "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]"
-            % (epoch, n_epochs, i, len(dataloader), d_loss.item(), g_loss.item())
-        )
+        # tqdm.write(
+        #     "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]"
+        #     % (epoch, n_epochs, i, len(dataloader), d_loss.item(), g_loss.item())
+        # )
 
     if epoch > 0 and epoch % 10 == 0:
-        sample_image(generator, dataset, 4, Path('imggen')/Path('output') / Path(f'epoch{epoch:03d}.png'), cuda)
+        sample_image(generator, train_dataset, test_dataset, 4, Path('imggen')/Path('output') / Path(f'epoch{epoch:03d}.png'), cuda)

@@ -5,7 +5,7 @@ import torchopenl3
 import torchopenl3.utils
 
 TARGET_SR = 48000
-TRACK_EMB_DIM = 5 * 6144
+TRACK_EMB_DIM = 6144
 IMG_SHAPE = (3, 48, 64)
 
 
@@ -24,7 +24,8 @@ class MyAudioEmbedder(nn.Module):
             torch.float32
         )
 
-        embedded = self.l3model(frames).reshape(num_tracks, -1)
+        # embedded = self.l3model(frames).reshape(num_tracks, -1)
+        embedded = self.l3model(frames).reshape(num_tracks, 5, -1).mean(axis=1)
         assert embedded.shape[-1] == TRACK_EMB_DIM
         return embedded
 
