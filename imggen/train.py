@@ -2,6 +2,7 @@ import glob
 import sys
 from pathlib import Path
 import more_itertools
+import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 import numpy as np
@@ -52,6 +53,17 @@ def sample_image(generator, train_dataset, test_dataset, n, filename, cuda):
     save_image(torch.stack(output_imgs).cpu().data, filename, nrow=2, normalize=True, value_range=(0, 255))
 
 
+def plot_loss(epoch_loss_gen, epoch_loss_dis_real, epoch_loss_dis_fake, filename):
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(np.mean(np.array(epoch_loss_gen), axis=1), label='gen loss')
+    ax.plot(np.mean(np.array(epoch_loss_dis_real), axis=1), label='dis loss fake')
+    ax.plot(np.mean(np.array(epoch_loss_dis_fake), axis=1), label='dis loss real')
+    ax.legend()
+    ax.set_yscale('log')
+
+    fig.savefig(filename)
+
+
 cuda = True if torch.cuda.is_available() else False
 
 embedding = MyAudioEmbedder()
@@ -90,8 +102,12 @@ dataloader = DataLoader(
     shuffle=True
 )
 
+epoch_loss_gen, epoch_loss_dis_real, epoch_loss_dis_fake = [], [], []
 n_epochs = 200
 for epoch in tqdm(range(n_epochs)):
+    epoch_loss_gen.append([])
+    epoch_loss_dis_real.append([])
+    epoch_loss_dis_fake.append([])
     generator.train()
     discriminator.train()
     for i, (imgs, track_embs) in enumerate(dataloader):
@@ -152,6 +168,10 @@ for epoch in tqdm(range(n_epochs)):
         #     "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]"
         #     % (epoch, n_epochs, i, len(dataloader), d_loss.item(), g_loss.item())
         # )
+        epoch_loss_gen[-1].append(g_loss.item())
+        epoch_loss_dis_fake[-1].append(d_fake_loss.item())
+        epoch_loss_dis_real[-1].append(d_real_loss.item())
 
-    if epoch > 0 and epoch % 10 == 0:
-        sample_image(generator, train_dataset, test_dataset, 4, Path(output_path) / Path(f'epoch{epoch:03d}.png'), cuda)
+    # if epoch > 0 and epoch % 10 == 0:
+    sample_image(generator, train_dataset, test_dataset, 4, Path(output_path) / Path(f'epoch{epoch:03d}.png'), cuda)
+    plot_loss(epoch_loss_gen, epoch_loss_dis_fake, epoch_loss_dis_real, Path(output_path) / Path(f'loss{epoch:03d}.png'))
