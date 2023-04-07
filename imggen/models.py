@@ -5,7 +5,7 @@ import torchopenl3
 import torchopenl3.utils
 
 TARGET_SR = 48000
-TRACK_EMB_DIM = 6144
+TRACK_EMB_DIM = 512
 IMG_SHAPE = (3, 64, 64)
 
 def weights_init(m):
@@ -21,7 +21,7 @@ class MyAudioEmbedder(nn.Module):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.l3model = torchopenl3.core.load_audio_embedding_model('mel256', 'music', 6144)  # magic numbers
+        self.l3model = torchopenl3.core.load_audio_embedding_model('mel256', 'music', TRACK_EMB_DIM)  # magic numbers
 
     def forward(self, audio_tracks):
         # audio_tracks.shape == (num_tracks, samples, channels)
@@ -43,23 +43,23 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
         ngf = 64
         self.model = nn.Sequential(
-            nn.ConvTranspose2d(gan_latent_dim + TRACK_EMB_DIM, ngf * 8, 4, 1, 0, bias=False),
+            nn.ConvTranspose2d(gan_latent_dim + TRACK_EMB_DIM, ngf * 8, 4, 1, 0),
             nn.BatchNorm2d(ngf * 8),
             nn.ReLU(True),
             # state size. (ngf*8) x 4 x 4
-            nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False),
+            nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1),
             nn.BatchNorm2d(ngf * 4),
             nn.ReLU(True),
             # state size. (ngf*4) x 8 x 8
-            nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1, bias=False),
+            nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1),
             nn.BatchNorm2d(ngf * 2),
             nn.ReLU(True),
             # state size. (ngf*2) x 16 x 16
-            nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False),
+            nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1),
             nn.BatchNorm2d(ngf),
             nn.ReLU(True),
             # state size. (ngf) x 32 x 32
-            nn.ConvTranspose2d(ngf, 3, 4, 2, 1, bias=False),
+            nn.ConvTranspose2d(ngf, 3, 4, 2, 1),
             nn.Tanh()
             # state size. (nc) x 64 x 64
         )

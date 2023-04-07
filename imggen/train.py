@@ -84,7 +84,7 @@ generator = Generator(GAN_LATENT_DIM)
 discriminator = Discriminator()
 
 # Optimizers
-optimizer_G = torch.optim.Adam(list(generator.parameters()), lr=0.0002)
+optimizer_G = torch.optim.Adam(list(generator.parameters()), lr=0.002)
 optimizer_D = torch.optim.Adam(list(discriminator.parameters()), lr=0.0002)
 
 FloatTensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
@@ -98,12 +98,12 @@ if cuda:
 
 dataloader = DataLoader(
     train_dataset,
-    batch_size=4,
+    batch_size=64,
     shuffle=True
 )
 
 epoch_loss_gen, epoch_loss_dis_real, epoch_loss_dis_fake = [], [], []
-n_epochs = 200
+n_epochs = 1000
 for epoch in tqdm(range(n_epochs)):
     epoch_loss_gen.append([])
     epoch_loss_dis_real.append([])
@@ -173,5 +173,8 @@ for epoch in tqdm(range(n_epochs)):
         epoch_loss_dis_real[-1].append(d_real_loss.item())
 
     # if epoch > 0 and epoch % 10 == 0:
-    sample_image(generator, train_dataset, test_dataset, 4, Path(output_path) / Path(f'epoch{epoch:03d}.png'), cuda)
-    plot_loss(epoch_loss_gen, epoch_loss_dis_fake, epoch_loss_dis_real, Path(output_path) / Path(f'loss{epoch:03d}.png'))
+    try:
+        sample_image(generator, train_dataset, test_dataset, 4, Path(output_path) / Path(f'epoch{epoch:03d}.png'), cuda)
+        plot_loss(epoch_loss_gen, epoch_loss_dis_fake, epoch_loss_dis_real, Path(output_path) / Path(f'loss{epoch:03d}.png'))
+    except:
+        print('failed to save images')

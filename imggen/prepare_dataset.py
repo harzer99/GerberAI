@@ -47,7 +47,7 @@ for wav in tqdm(files, desc='image processing'):
 
 with torch.no_grad():
     with tqdm(total=len(tracks), desc='music embedding') as pbar:
-        for track_batch in more_itertools.chunked(tracks, n=4 if cuda else 1):
+        for track_batch in more_itertools.chunked(tracks, n = 4 if cuda else 1):
             track_batch = torch.stack(track_batch)
             if cuda:
                 track_batch = track_batch.cuda()

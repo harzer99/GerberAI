@@ -3,3 +3,5 @@ autoencoder/.idea/
 autoencoder/__pychache__
 autoencoder/Models
 imggen/output
+youtubescraper/videolists
+imggen\embeder_tester.py
