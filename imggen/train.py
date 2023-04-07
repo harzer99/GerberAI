@@ -66,16 +66,6 @@ def plot_loss(epoch_loss_gen, epoch_loss_dis_real, epoch_loss_dis_fake, filename
 
 cuda = True if torch.cuda.is_available() else False
 
-embedding = MyAudioEmbedder()
-
-dataset = torch.load(Path(dataset_path))
-test_size = 4
-train_dataset, test_dataset = random_split(dataset, [len(dataset)-test_size, test_size])
-
-# mean/std for sampling in the embedding space
-_, music_emb = dataset.tensors
-emb_std, emb_mean = torch.std_mean(music_emb.cpu(), axis=0)
-
 # Loss functions
 adversarial_loss = torch.nn.BCEWithLogitsLoss()
 
@@ -83,9 +73,12 @@ adversarial_loss = torch.nn.BCEWithLogitsLoss()
 generator = Generator(GAN_LATENT_DIM)
 discriminator = Discriminator()
 
+#generator = torch.load('G:\\ProjectEuler\\techno_scraper\\GerberAI\\imggen_output\\gen.torch')
+#discriminator = torch.load( 'G:\\ProjectEuler\\techno_scraper\\GerberAI\\imggen_output\\dis.torch')
+
 # Optimizers
-optimizer_G = torch.optim.Adam(list(generator.parameters()), lr=0.002)
-optimizer_D = torch.optim.Adam(list(discriminator.parameters()), lr=0.0002)
+optimizer_G = torch.optim.Adam(list(generator.parameters()), lr=0.0002)
+optimizer_D = torch.optim.Adam(list(discriminator.parameters()), lr=0.00015)
 
 FloatTensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
@@ -95,22 +88,33 @@ if cuda:
     discriminator.cuda()
     adversarial_loss.cuda()
 
+embedding = MyAudioEmbedder()
+
+dataset = torch.load(Path(dataset_path))
+test_size = 4
+train_dataset, test_dataset = random_split(dataset, [len(dataset)-test_size, test_size], torch.Generator().manual_seed(666))
+
+# mean/std for sampling in the embedding space
+_, music_emb = dataset.tensors
+emb_std, emb_mean = torch.std_mean(music_emb.cpu(), axis=0)
+
 
 dataloader = DataLoader(
     train_dataset,
-    batch_size=64,
+    batch_size=1024,
     shuffle=True
 )
 
 epoch_loss_gen, epoch_loss_dis_real, epoch_loss_dis_fake = [], [], []
-n_epochs = 1000
-for epoch in tqdm(range(n_epochs)):
+n_epochs = 30
+for epoch in tqdm(range(n_epochs), desc='epochs', unit='epoch', leave=True):
     epoch_loss_gen.append([])
     epoch_loss_dis_real.append([])
     epoch_loss_dis_fake.append([])
     generator.train()
     discriminator.train()
-    for i, (imgs, track_embs) in enumerate(dataloader):
+
+    for i, (imgs, track_embs) in tqdm(enumerate(dataloader), desc='batch', total=len(dataloader), leave=False, unit='batch'):
 
         batch_size = imgs.shape[0]
 
@@ -173,8 +177,8 @@ for epoch in tqdm(range(n_epochs)):
         epoch_loss_dis_real[-1].append(d_real_loss.item())
 
     # if epoch > 0 and epoch % 10 == 0:
-    try:
-        sample_image(generator, train_dataset, test_dataset, 4, Path(output_path) / Path(f'epoch{epoch:03d}.png'), cuda)
-        plot_loss(epoch_loss_gen, epoch_loss_dis_fake, epoch_loss_dis_real, Path(output_path) / Path(f'loss{epoch:03d}.png'))
-    except:
-        print('failed to save images')
+    sample_image(generator, train_dataset, test_dataset, 4, Path(output_path) / Path(f'epoch{epoch:03d}.png'), cuda)
+    plot_loss(epoch_loss_gen, epoch_loss_dis_fake, epoch_loss_dis_real, Path(output_path) / Path(f'loss{epoch:03d}.png'))
+
+torch.save(generator, 'G:\\ProjectEuler\\techno_scraper\\GerberAI\\imggen_output\\gen.torch')
+torch.save(discriminator, 'G:\\ProjectEuler\\techno_scraper\\GerberAI\\imggen_output\\dis.torch')
