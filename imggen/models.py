@@ -41,7 +41,7 @@ class MyAudioEmbedder(nn.Module):
 class Generator(nn.Module):
     def __init__(self, gan_latent_dim):
         super(Generator, self).__init__()
-        ngf = 64
+        ngf = 32
         self.model = nn.Sequential(
             nn.ConvTranspose2d(gan_latent_dim + TRACK_EMB_DIM, ngf * 8, 4, 1, 0),
             nn.BatchNorm2d(ngf * 8),
@@ -78,7 +78,7 @@ class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
 
-        ndf = 64
+        ndf = 32
         self.image_embedder = nn.Sequential(
             # input is (nc) x 64 x 64
             nn.Conv2d(3, ndf, 4, 2, 1, bias=False),
