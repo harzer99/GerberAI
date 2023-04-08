@@ -59,7 +59,7 @@ def export_for_imgen(audio_file):
     
     # running through each video and the corresponding audio to create snippets
     i = 0
-    seeks = np.linspace(start = 10, stop = length-10, num = 20)
+    seeks = np.linspace(start = 10, stop = length-10, num = 100)
     for seek in seeks:
         path = snippet_directory + '\\'+ id + '_'+ str(i).zfill(3)
         image_path = path + '.png'
@@ -153,7 +153,7 @@ class Video_Prepper():
 ###########################################################
 
 playlist_file = 'youtubescraper\\videolists\\hate_podcast.txt'
-main_directory = 'C:\\GerberAI'
+main_directory = 'I:\\GerberAI'
 
 
 ###########################################################
@@ -172,6 +172,6 @@ os.makedirs(snippet_directory, exist_ok = True)
 
 if __name__ == '__main__':
     myprepper = Video_Prepper(video_directory, audio_directory, main_directory, 6)
-    myprepper.download(playlist_file)
+    #myprepper.download(playlist_file)
     #myprepper.analyze()
     myprepper.export_snippets()

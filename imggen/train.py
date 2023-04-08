@@ -2,6 +2,7 @@ import glob
 import sys
 from pathlib import Path
 import more_itertools
+import matplotlib
 import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
@@ -16,17 +17,25 @@ from torchvision.io import read_image
 from torchvision.utils import save_image
 
 from models import TARGET_SR, IMG_SHAPE, TRACK_EMB_DIM, Generator, Discriminator, MyAudioEmbedder
+matplotlib.use("Agg")
 
 GAN_LATENT_DIM = 1000
 
 #set these paths
 #######################################################################################
-dataset_path = sys.argv[1] if len(sys.argv) > 1 else 'C:\\GerberAI\\dataset.pt'
-output_path = sys.argv[2] if len(sys.argv) > 1 else 'C:\\GerberAI\\imggen_output'
-checkpoint_interval = 20
+dataset_path = sys.argv[1] if len(sys.argv) > 1 else 'I:\\GerberAI\\dataset.pt'
+output_path = sys.argv[2] if len(sys.argv) > 1 else 'I:\\GerberAI\\imggen_output'
+generator_path = sys.argv[2] if len(sys.argv) > 1 else 'I:\\GerberAI\\imggen_output_1\\checkpoints\\generator_0200.pt'
+discriminator_path = sys.argv[2] if len(sys.argv) > 1 else 'I:\\GerberAI\\imggen_output_1\\checkpoints\\discriminator_0200.pt'
+load_existing = True
+checkpoint_interval = 40
 plot_intervall = 20
-image_intervall = 10
-n_epochs = 100
+image_intervall = 20
+n_epochs = 10000
+batch_size = 1024*2
+lr_generator = 0.00005
+lr_discriminator = 0.000025
+
 #######################################################################################
 
 
@@ -80,7 +89,7 @@ def plot_loss(epoch_loss_gen, epoch_loss_dis_real, epoch_loss_dis_fake, filename
     ax.set_yscale('log')
 
     fig.savefig(filename)
-
+    plt.close('all')
 
 cuda = True if torch.cuda.is_available() else False
 
@@ -88,15 +97,19 @@ cuda = True if torch.cuda.is_available() else False
 adversarial_loss = torch.nn.BCEWithLogitsLoss()
 
 # Initialize generator and discriminator
-generator = Generator(GAN_LATENT_DIM)
-discriminator = Discriminator()
+if load_existing:
+    generator = torch.load(generator_path)
+    discriminator = torch.load(discriminator_path)
+else:
+    generator = Generator(GAN_LATENT_DIM)
+    discriminator = Discriminator()
 
 #generator = torch.load('G:\\ProjectEuler\\techno_scraper\\GerberAI\\imggen_output\\gen.torch')
 #discriminator = torch.load( 'G:\\ProjectEuler\\techno_scraper\\GerberAI\\imggen_output\\dis.torch')
 
 # Optimizers
-optimizer_G = torch.optim.Adam(list(generator.parameters()), lr=0.0002)
-optimizer_D = torch.optim.Adam(list(discriminator.parameters()), lr=0.0002)
+optimizer_G = torch.optim.Adam(list(generator.parameters()), lr=lr_generator)
+optimizer_D = torch.optim.Adam(list(discriminator.parameters()), lr=lr_discriminator)
 
 FloatTensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
@@ -119,7 +132,7 @@ emb_std, emb_mean = torch.std_mean(music_emb.cpu(), axis=0)
 
 dataloader = DataLoader(
     train_dataset,
-    batch_size=1024*2,
+    batch_size = batch_size,
     shuffle=True
 )
 
@@ -195,6 +208,7 @@ for epoch in tqdm(range(n_epochs), desc='epochs', unit='epoch', leave=True):
         epoch_loss_dis_real[-1].append(d_real_loss.item())
 
     # saving files every given interval
+    plot_loss(epoch_loss_gen, epoch_loss_dis_fake, epoch_loss_dis_real, Path(plot_path) / Path(f'current.png'))
     if epoch > 0 and epoch % checkpoint_interval == 0:
         torch.save(generator, os.path.join(checkpoint_path, f'generator_{epoch:04d}.pt'))
         torch.save(discriminator, os.path.join(checkpoint_path, f'discriminator_{epoch:04d}.pt'))
@@ -206,11 +220,13 @@ for epoch in tqdm(range(n_epochs), desc='epochs', unit='epoch', leave=True):
 
     #checking if model is mode locked
     if epoch > 2* checkpoint_interval:
-        rolling_fake = np.mean(np.mean(np.array(epoch_loss_dis_fake))[epoch-5:epoch])
-        rolling_real = np.mean(np.array(epoch_loss_dis_real))[epoch-5:epoch]
-        if rolling_fake < 10**-8 or rolling_real < 10**-8:
+        rolling_fake = np.mean(np.array(epoch_loss_dis_fake)[epoch-5:epoch])
+        rolling_real = np.mean(np.array(epoch_loss_dis_real)[epoch-5:epoch])
+        if rolling_fake < 10**-9 or rolling_real < 10**-9:
             generator = torch.load(os.path.join(checkpoint_path, f'generator_{checkpoint:04d}.pt'))
             discriminator = torch.load(os.path.join(checkpoint_path, f'discriminator_{checkpoint:04d}.pt'))
+            optimizer_G = torch.optim.Adam(list(generator.parameters()), lr=lr_generator)
+            optimizer_D = torch.optim.Adam(list(discriminator.parameters()), lr=lr_discriminator)
             print(f'model has been reverted loaded {checkpoint:04d}')
 
 
