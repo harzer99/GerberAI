@@ -27,13 +27,13 @@ class MyAudioEmbedder(nn.Module):
         # audio_tracks.shape == (num_tracks, samples, channels)
         audio = audio_tracks.mean(axis=2)
         num_tracks = audio_tracks.shape[0]
-        assert audio_tracks.shape[1] // TARGET_SR == 4
+        # assert audio_tracks.shape[1] // TARGET_SR == 4
         frames = torchopenl3.utils.preprocess_audio_batch(audio, TARGET_SR, center=False, hop_size=1, sampler=None).to(
             torch.float32
         )
 
         # embedded = self.l3model(frames).reshape(num_tracks, -1)
-        embedded = self.l3model(frames).reshape(num_tracks, 5, -1).mean(axis=1)
+        embedded = self.l3model(frames).reshape(num_tracks, -1, TRACK_EMB_DIM).mean(axis=1)
         assert embedded.shape[-1] == TRACK_EMB_DIM
         return embedded
 
