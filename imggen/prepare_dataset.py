@@ -15,7 +15,7 @@ from torch.utils.data import TensorDataset
 from models import TARGET_SR, IMG_SHAPE
 
 input_path = sys.argv[1] if len(sys.argv) > 1 else 'I:\\GerberAI\\snippets'
-output_path = sys.argv[2]if len(sys.argv) > 1 else 'I:\\GerberAI\\dataset.pt'
+output_path = sys.argv[2]if len(sys.argv) > 1 else 'I:\\GerberAI\\dataset_test.pt'
 
 cuda = True if torch.cuda.is_available() else False
 
@@ -45,9 +45,12 @@ with torch.no_grad():
 
         images.append(img)
         #tracks.append(track)
+        print(track.shape)
         track_batch = torch.stack([track])
+        print(track_batch.shape)
         if cuda:
             track_batch = track_batch.cuda()
+            emb_tmp = embedding(track_batch)
             emb.extend(embedding(track_batch))
         else:
             emb.extend(embedding(track_batch))
