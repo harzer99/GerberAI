@@ -18,13 +18,69 @@ from torch.autograd import Variable
 import tkinter as tk
 from PIL import Image, ImageTk
 
-GAN_LATENT_DIM = 1000
 
+# images = []
+# labels = []
+# placeholder = ImageTk.PhotoImage(Image.new('RGB', (64, 64), (0, 0, 255)))
+# images.append(placeholder)
+# tk_canvas = tk.Canvas(root, bg="black", borderwidth=0)
+# tk_canvas.pack(fill=tk.BOTH, expand=tk.YES)
+# tk_canvas.create_image(0, 0, image=placeholder, anchor=tk.NW)
+# labels.append(tk_canvas)
+
+
+class App:
+    def __init__(self, master):
+        self.master = master
+        self.master.title("Image Viewer")
+        self.master.geometry("800x600")
+
+        # Load image
+        self.img = Image.new('RGB', (64, 64), (0, 0, 255))
+        # self.img = Image.open("example.jpg")
+        self.photo = ImageTk.PhotoImage(self.img)
+
+        # Create canvas to display image
+        self.canvas = tk.Canvas(self.master, bg="black", borderwidth=0, highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=tk.YES)
+
+        # Display image
+        self.canvas.bind('<Configure>', self.resize_canvas)
+
+    def change_image(self, image):
+        self.img = image
+        self.photo = ImageTk.PhotoImage(self.img)
+        self.resize_image()
+
+    def resize_canvas(self, event):
+        self.canvas.config(width=event.width, height=event.height)
+        self.resize_image()
+
+    def resize_image(self):
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        aspect_ratio = self.img.width / self.img.height
+        if canvas_width / canvas_height < aspect_ratio:
+            size = (canvas_width, int(canvas_width / aspect_ratio))
+        else:
+            size = (int(canvas_height * aspect_ratio), canvas_height)
+        resized_img = self.img.resize(size, Image.ANTIALIAS)
+        self.photo = ImageTk.PhotoImage(resized_img)
+        x = (canvas_width - resized_img.width) // 2
+        y = (canvas_height - resized_img.height) // 2
+
+        self.canvas.delete('all')
+        self.canvas.create_image(x, y, image=self.photo, anchor=tk.NW)
+
+
+root = tk.Tk()
+app = App(root)
+
+GAN_LATENT_DIM = 1000
+CHUNK = 512
 audio = pyaudio.PyAudio()
 for ii in range(audio.get_device_count()):
     print(ii, audio.get_device_info_by_index(ii).get('name'))
-
-CHUNK = 512
 
 cuda = True if torch.cuda.is_available() else False
 FloatTensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
@@ -54,35 +110,26 @@ stream = audio.open(format=pyaudio.paFloat32,
                     stream_callback=recorder_callback,
                     frames_per_buffer=CHUNK)
 
-root = tk.Tk()
-images = []
-labels = []
-tk_image = None
-tk_label = None
-placeholder = ImageTk.PhotoImage(Image.new('RGB', (1024, 576), (0, 0, 255)))
-images.append(placeholder)
-label = tk.Label(root, image=placeholder, borderwidth=0)
-label.grid(row=0, column=0)
-labels.append(label)
-
-
-def scale_img(img, scale_factor):
-    rows, cols = img.shape[1:]
-    scaled_rows, scaled_cols = int(rows * scale_factor), int(cols * scale_factor)
-
-    upscaled_img = np.zeros((scaled_rows, scaled_cols, 3), dtype=np.uint8)
-
-    for chan in range(0, 3):
-        channel = img[chan]
-        f = np.fft.fft2(channel)
-        fshift = np.fft.fftshift(f)
-        padded_spectrum = np.pad(fshift, (((scaled_rows - rows) // 2, (scaled_rows - rows) // 2), ((scaled_cols - cols) // 2, (scaled_cols - cols) // 2)), mode='constant')
-        padded_spectrum_shift = np.fft.ifftshift(padded_spectrum)
-        upscaled_chan = np.real(np.fft.ifft2(padded_spectrum_shift))
-        upscaled_chan = channel.min() + (upscaled_chan - upscaled_chan.min()) / (upscaled_chan.max() - upscaled_chan.min()) * (channel.max() - channel.min())
-        upscaled_img[:,:,chan] = upscaled_chan
-
-    return upscaled_img
+#
+# def scale_img(img, scale_factor):
+#     rows, cols = img.shape[1:]
+#     scaled_rows, scaled_cols = int(rows * scale_factor), int(cols * scale_factor)
+#
+#     # highpass = np.sqrt((np.arange(rows)[:, np.newaxis] - rows//2)**2 + (np.arange(cols)[np.newaxis, :] - cols//2)**2) > 50
+#     upscaled_img = np.zeros((scaled_rows, scaled_cols, 3), dtype=np.uint8)
+#
+#     for chan in range(0, 3):
+#         channel = img[chan]
+#         f = np.fft.fft2(channel)
+#         fshift = np.fft.fftshift(f)
+#         # fshift = np.where(highpass, fshift, 0)
+#         padded_spectrum = np.pad(fshift, (((scaled_rows - rows) // 2, (scaled_rows - rows) // 2), ((scaled_cols - cols) // 2, (scaled_cols - cols) // 2)), mode='constant')
+#         padded_spectrum_shift = np.fft.ifftshift(padded_spectrum)
+#         upscaled_chan = np.abs(np.fft.ifft2(padded_spectrum_shift))
+#         upscaled_chan = channel.min() + (upscaled_chan - upscaled_chan.min()) / (upscaled_chan.max() - upscaled_chan.min()) * (channel.max() - channel.min())
+#         upscaled_img[:,:,chan] = upscaled_chan
+#
+#     return upscaled_img
 
 
 def update_images():
@@ -115,42 +162,20 @@ def update_images():
         t = time.monotonic()
 
         grid = torchvision.utils.make_grid(gen_imgs, nrow=5, padding=0)
-        out_img = scale_img(grid.numpy(), 5)
-        out_img = Image.fromarray(out_img)
+        # out_img = scale_img(grid.numpy(), 5)
+        out_img = torchvision.transforms.ToPILImage()(grid)
         print(f'post-processing done; +{(time.monotonic() - t) * 1000:.2f}ms')
         t = time.monotonic()
 
-        images[0] = ImageTk.PhotoImage(out_img)
-        labels[0].config(image=images[0])
+        app.change_image(out_img)
 
-    delta = 2 + start_t - time.monotonic()
+        # images[0] = ImageTk.PhotoImage(out_img)
+        # labels[0].config(image=images[0])
+
+    delta = 3 + start_t - time.monotonic()
     print(f'waiting {delta * 1000:.2f}ms')
     root.after(int(delta*1000), update_images)
 
 
 root.after(1000, update_images)
 root.mainloop()
-
-# snippets = []
-# time.sleep(5)
-# for i in range(10):
-#     time.sleep(5)
-#     print('peek buffer', i)
-#     track = np.concatenate(audio_deque)
-#     snippets.append(track)
-#
-# time.sleep(5)
-# print('playback')
-#
-#
-# stream_out = audio.open(format=pyaudio.paFloat32,
-#                     channels=1,
-#                     rate=SAMPLE_RATE,
-#                     output_device_index=6,
-#                     output=True,
-#                     frames_per_buffer=CHUNK)
-# for track in snippets:
-#     for i in range(0, len(track), CHUNK):
-#         stream_out.write(track[i:i+CHUNK].tobytes())
-#
-# stream_out.close()
