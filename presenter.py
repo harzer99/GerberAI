@@ -68,15 +68,34 @@ class App:
 
 
 root = tk.Tk()
+# Get the width and height of the primary screen
+primary_screen_width = root.winfo_screenwidth()
+primary_screen_height = root.winfo_screenheight()
+
+# Set the window attributes to fullscreen
+root.attributes("-fullscreen", True)
+
+#canvas = tk.Canvas(root)
+#canvas.pack(fill=tk.BOTH, expand=True)
+
+# Calculate the position of the window on the second screen
+second_screen_x = 1920
+second_screen_y = 0
+
+# Set the window geometry to the position of the second screen
+root.geometry("1920x1080+{}+{}".format(second_screen_x, second_screen_y))
 app = App(root)
 
 GAN_LATENT_DIM = 1000
 CHUNK = 512
-sample_time = 20
-embedding_time = 5
-calibration_shift = 0.02
-stability = 0.3
-batch_size = 1
+sample_time = 40
+embedding_time = 0.1
+calibration_shift = 0.12
+stability = 0.5
+chaos = 0
+z_height = 1 + chaos
+batch_size = 15
+
 audio = pyaudio.PyAudio()
 for ii in range(audio.get_device_count()):
     print(ii, audio.get_device_info_by_index(ii).get('name'))
@@ -109,7 +128,7 @@ def recorder_callback(in_data, frame_count, time_info, status_flags):
 stream = audio.open(format=pyaudio.paFloat32,
                     channels=2,
                     rate=44100,
-                    input_device_index = 3, #audio.get_default_output_device_info()['index'],
+                    input_device_index = 4, #audio.get_default_output_device_info()['index'],
                     input=True,
                     stream_callback=recorder_callback,
                     frames_per_buffer=CHUNK)
@@ -158,7 +177,7 @@ def update_images():
         t = time.monotonic()
 
         track = torch.tensor(resampy.resample(
-            audio[-embedding_time*44100:],
+            audio[-int(embedding_time*44100):],
             sr_orig=44100,
             sr_new=48000,
             filter='kaiser_fast'
@@ -168,12 +187,12 @@ def update_images():
         print(f'audio preprocessing; +{(time.monotonic() - t) * 1000:.2f}ms')
         t = time.monotonic()
 
-        track_emb = embedder(torch.stack([track]))+ torch.tensor(np.random.normal(0, 100, (1, 512))).cuda().float()
+        track_emb = embedder(torch.stack([track]))+ torch.tensor(np.random.normal(0, chaos, (1, 512))).cuda().float()
         print(f'embedding done; +{(time.monotonic() - t) * 1000:.2f}ms')
         t = time.monotonic()
 
         
-        z = FloatTensor(np.random.normal(0, 2, (batch_size, GAN_LATENT_DIM)))
+        z = FloatTensor(np.random.normal(0, z_height, (batch_size, GAN_LATENT_DIM)))
         gen_imgs = generator(z, track_emb.expand(batch_size, -1)).cpu().to(torch.uint8)
         print(f'{batch_size} images done; +{(time.monotonic() - t) * 1000:.2f}ms')
         t = time.monotonic()
@@ -203,5 +222,5 @@ def update_images():
     root.after(10, update_images)
 
 
-root.after(1000, update_images)
+root.after(500, update_images)
 root.mainloop()
