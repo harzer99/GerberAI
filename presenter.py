@@ -1,6 +1,7 @@
 import collections
 import sys
 import time
+from pathlib import Path
 
 import librosa as librosa
 
@@ -87,11 +88,13 @@ LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
 
 embedder = MyAudioEmbedder()
 embedder.eval()
-generator = torch.load('/home/leonardmuller/GerberAI/generators_leo/generator_0480.pt',
-                       map_location=torch.device('cpu'))
+
+generators = []
+for file in sorted(Path('/home/leonardmuller/GerberAI/generators_leo/').glob('generator_*.pt')):
+    generators.append(torch.load(file, map_location=torch.device('cpu')))
+
 if cuda:
     embedder.cuda()
-    generator.cuda()
 
 audio_deque = collections.deque(maxlen=int(44100 / CHUNK * sample_time))
 
@@ -110,12 +113,28 @@ stream = audio.open(format=pyaudio.paFloat32,
                     frames_per_buffer=CHUNK)
 
 
+current_generator_index = len(generators) // 2
 def update_images():
+    global current_generator_index
     start_t = time.monotonic()
     t = start_t
     print(f'peek buffer; +{0:.2f}ms')
     with torch.no_grad():
         embedder.eval()
+
+        r = np.random.choice([-1, 0, 1], 1, p=[.1, .8, .1])
+        if r != 0:
+            generators[current_generator_index].cpu()
+
+        current_generator_index = current_generator_index + r
+        if current_generator_index < 0:
+            current_generator_index = 0
+        if current_generator_index >= len(generators):
+            current_generator_index = len(generators) - 1
+
+        generator = generators[current_generator_index]
+        if cuda:
+            generator.cuda()
         generator.eval()
 
         audio = np.concatenate(audio_deque)
