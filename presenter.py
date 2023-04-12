@@ -3,6 +3,7 @@ import sys
 import time
 from imggen.models import MyAudioEmbedder, Generator
 import imggen.models as models
+#from beat_predictor import Beat_detector
 import resampy
 
 sys.modules['models'] = models
@@ -78,9 +79,13 @@ app = App(root)
 
 GAN_LATENT_DIM = 1000
 CHUNK = 512
+sample_time = 1
 audio = pyaudio.PyAudio()
 for ii in range(audio.get_device_count()):
     print(ii, audio.get_device_info_by_index(ii).get('name'))
+
+device_info = audio.get_device_info_by_index(2)
+print(device_info)
 
 cuda = True if torch.cuda.is_available() else False
 FloatTensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
@@ -88,13 +93,13 @@ LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
 
 embedder = MyAudioEmbedder()
 embedder.eval()
-generator = torch.load(sys.argv[1] if len(sys.argv) > 1 else 'C:\\GerberAI\\generator.pt',
+generator = torch.load('/home/leonardmuller/GerberAI/generator_0480.pt',
                        map_location=torch.device('cpu'))
 if cuda:
     embedder.cuda()
     generator.cuda()
 
-audio_deque = collections.deque(maxlen=int(44100 / CHUNK * 3.8))
+audio_deque = collections.deque(maxlen=int(44100 / CHUNK * sample_time))
 
 def recorder_callback(in_data, frame_count, time_info, status_flags):
     audio_data = np.frombuffer(in_data, dtype=np.float32).reshape(-1, 2)
@@ -105,7 +110,7 @@ def recorder_callback(in_data, frame_count, time_info, status_flags):
 stream = audio.open(format=pyaudio.paFloat32,
                     channels=2,
                     rate=44100,
-                    input_device_index=6,
+                    input_device_index = 2, #audio.get_default_output_device_info()['index'],
                     input=True,
                     stream_callback=recorder_callback,
                     frames_per_buffer=CHUNK)
@@ -156,7 +161,7 @@ def update_images():
         t = time.monotonic()
 
         batch_size = 15
-        z = FloatTensor(np.random.normal(0, 10, (batch_size, GAN_LATENT_DIM)))
+        z = FloatTensor(np.random.normal(0, 2, (batch_size, GAN_LATENT_DIM)))
         gen_imgs = generator(z, track_emb.expand(batch_size, -1)).cpu().to(torch.uint8)
         print(f'{batch_size} images done; +{(time.monotonic() - t) * 1000:.2f}ms')
         t = time.monotonic()
@@ -172,7 +177,7 @@ def update_images():
         # images[0] = ImageTk.PhotoImage(out_img)
         # labels[0].config(image=images[0])
 
-    delta = 3 + start_t - time.monotonic()
+    delta = 0.1 + start_t - time.monotonic()
     print(f'waiting {delta * 1000:.2f}ms')
     root.after(int(delta*1000), update_images)
 

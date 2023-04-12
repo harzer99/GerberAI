@@ -52,7 +52,7 @@ class Beat_detector:
             print(self.futurebeats)
     
 sr=5500
-update_time = 2.0
+update_time = 1.0
 analyze_time = 20.0
 
 analyzer = Beat_detector(sr, update_time, analyze_time)
