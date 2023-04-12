@@ -75,6 +75,8 @@ CHUNK = 512
 sample_time = 20
 embedding_time = 5
 calibration_shift = 0.02
+stability = 0.3
+batch_size = 1
 audio = pyaudio.PyAudio()
 for ii in range(audio.get_device_count()):
     print(ii, audio.get_device_info_by_index(ii).get('name'))
@@ -122,7 +124,7 @@ def update_images():
     with torch.no_grad():
         embedder.eval()
 
-        r = np.random.choice([-1, 0, 1], 1, p=[.1, .8, .1])
+        r = np.random.choice([-1, 0, 1], p=[(1-stability)/2, stability, (1-stability)/2])
         if r != 0:
             generators[current_generator_index].cpu()
 
@@ -166,11 +168,11 @@ def update_images():
         print(f'audio preprocessing; +{(time.monotonic() - t) * 1000:.2f}ms')
         t = time.monotonic()
 
-        track_emb = embedder(torch.stack([track]))
+        track_emb = embedder(torch.stack([track]))+ torch.tensor(np.random.normal(0, 100, (1, 512))).cuda().float()
         print(f'embedding done; +{(time.monotonic() - t) * 1000:.2f}ms')
         t = time.monotonic()
 
-        batch_size = 15
+        
         z = FloatTensor(np.random.normal(0, 2, (batch_size, GAN_LATENT_DIM)))
         gen_imgs = generator(z, track_emb.expand(batch_size, -1)).cpu().to(torch.uint8)
         print(f'{batch_size} images done; +{(time.monotonic() - t) * 1000:.2f}ms')
