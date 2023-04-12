@@ -1,9 +1,11 @@
 import collections
 import sys
 import time
+
+import librosa as librosa
+
 from imggen.models import MyAudioEmbedder, Generator
 import imggen.models as models
-#from beat_predictor import Beat_detector
 import resampy
 
 sys.modules['models'] = models
@@ -18,16 +20,6 @@ from torch.autograd import Variable
 
 import tkinter as tk
 from PIL import Image, ImageTk
-
-
-# images = []
-# labels = []
-# placeholder = ImageTk.PhotoImage(Image.new('RGB', (64, 64), (0, 0, 255)))
-# images.append(placeholder)
-# tk_canvas = tk.Canvas(root, bg="black", borderwidth=0)
-# tk_canvas.pack(fill=tk.BOTH, expand=tk.YES)
-# tk_canvas.create_image(0, 0, image=placeholder, anchor=tk.NW)
-# labels.append(tk_canvas)
 
 
 class App:
@@ -79,7 +71,7 @@ app = App(root)
 
 GAN_LATENT_DIM = 1000
 CHUNK = 512
-sample_time = 1
+sample_time = 20
 audio = pyaudio.PyAudio()
 for ii in range(audio.get_device_count()):
     print(ii, audio.get_device_info_by_index(ii).get('name'))
@@ -115,27 +107,6 @@ stream = audio.open(format=pyaudio.paFloat32,
                     stream_callback=recorder_callback,
                     frames_per_buffer=CHUNK)
 
-#
-# def scale_img(img, scale_factor):
-#     rows, cols = img.shape[1:]
-#     scaled_rows, scaled_cols = int(rows * scale_factor), int(cols * scale_factor)
-#
-#     # highpass = np.sqrt((np.arange(rows)[:, np.newaxis] - rows//2)**2 + (np.arange(cols)[np.newaxis, :] - cols//2)**2) > 50
-#     upscaled_img = np.zeros((scaled_rows, scaled_cols, 3), dtype=np.uint8)
-#
-#     for chan in range(0, 3):
-#         channel = img[chan]
-#         f = np.fft.fft2(channel)
-#         fshift = np.fft.fftshift(f)
-#         # fshift = np.where(highpass, fshift, 0)
-#         padded_spectrum = np.pad(fshift, (((scaled_rows - rows) // 2, (scaled_rows - rows) // 2), ((scaled_cols - cols) // 2, (scaled_cols - cols) // 2)), mode='constant')
-#         padded_spectrum_shift = np.fft.ifftshift(padded_spectrum)
-#         upscaled_chan = np.abs(np.fft.ifft2(padded_spectrum_shift))
-#         upscaled_chan = channel.min() + (upscaled_chan - upscaled_chan.min()) / (upscaled_chan.max() - upscaled_chan.min()) * (channel.max() - channel.min())
-#         upscaled_img[:,:,chan] = upscaled_chan
-#
-#     return upscaled_img
-
 
 def update_images():
     start_t = time.monotonic()
@@ -144,7 +115,24 @@ def update_images():
     with torch.no_grad():
         embedder.eval()
         generator.eval()
+
         audio = np.concatenate(audio_deque)
+
+        tempo, beats = librosa.beat.beat_track(y=audio.mean(axis=1), sr=44100, start_bpm=120)
+        if len(beats) == 0:
+            beats_time = [0]
+            print('warn: no beats found, defaulting to start of buffer')
+        else:
+            beats_time = librosa.frames_to_time(beats, sr=44100)
+        meanbeat = start_t - len(audio) / 44100 + beats_time[-1]
+        if tempo != 0:
+            tau = 1 / tempo * 60
+        else:
+            tau = 2
+            print('warn: no tempo found, defaulting to tau=2s')
+        print(f'beat detection (tempo: {tempo:.2f}bpm; tau: {tau:.2f}); +{(time.monotonic() - t) * 1000:.2f}ms')
+        t = time.monotonic()
+
         track = torch.tensor(resampy.resample(
             audio,
             sr_orig=44100,
@@ -170,16 +158,25 @@ def update_images():
         # out_img = scale_img(grid.numpy(), 5)
         out_img = torchvision.transforms.ToPILImage()(grid)
         print(f'post-processing done; +{(time.monotonic() - t) * 1000:.2f}ms')
-        t = time.monotonic()
+
+        next_beat = None
+        for i in range(100):
+            if meanbeat + i*tau - 0.020 > time.monotonic():
+                next_beat = meanbeat + i*tau
+                break
+
+        if next_beat is not None:
+            beat_delta = next_beat - time.monotonic()
+            beat_delta = max(beat_delta, 3)
+            print(f'waiting {beat_delta*1000:.2f}ms to next beat')
+            time.sleep(beat_delta)
+        else:
+            print('warn: no beat found!')
 
         app.change_image(out_img)
 
-        # images[0] = ImageTk.PhotoImage(out_img)
-        # labels[0].config(image=images[0])
-
-    delta = 0.1 + start_t - time.monotonic()
-    print(f'waiting {delta * 1000:.2f}ms')
-    root.after(int(delta*1000), update_images)
+    print(f'waiting {10:.2f}ms to next invocation')
+    root.after(10, update_images)
 
 
 root.after(1000, update_images)
