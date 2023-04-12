@@ -72,6 +72,8 @@ app = App(root)
 GAN_LATENT_DIM = 1000
 CHUNK = 512
 sample_time = 20
+embedding_time = 5
+calibration_shift = 0.02
 audio = pyaudio.PyAudio()
 for ii in range(audio.get_device_count()):
     print(ii, audio.get_device_info_by_index(ii).get('name'))
@@ -85,7 +87,7 @@ LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
 
 embedder = MyAudioEmbedder()
 embedder.eval()
-generator = torch.load('/home/leonardmuller/GerberAI/generator_0480.pt',
+generator = torch.load('/home/leonardmuller/GerberAI/generators_leo/generator_0480.pt',
                        map_location=torch.device('cpu'))
 if cuda:
     embedder.cuda()
@@ -102,7 +104,7 @@ def recorder_callback(in_data, frame_count, time_info, status_flags):
 stream = audio.open(format=pyaudio.paFloat32,
                     channels=2,
                     rate=44100,
-                    input_device_index = 2, #audio.get_default_output_device_info()['index'],
+                    input_device_index = 3, #audio.get_default_output_device_info()['index'],
                     input=True,
                     stream_callback=recorder_callback,
                     frames_per_buffer=CHUNK)
@@ -125,6 +127,7 @@ def update_images():
         else:
             beats_time = librosa.frames_to_time(beats, sr=44100)
         meanbeat = start_t - len(audio) / 44100 + beats_time[-1]
+
         if tempo != 0:
             tau = 1 / tempo * 60
         else:
@@ -134,7 +137,7 @@ def update_images():
         t = time.monotonic()
 
         track = torch.tensor(resampy.resample(
-            audio,
+            audio[-embedding_time*44100:],
             sr_orig=44100,
             sr_new=48000,
             filter='kaiser_fast'
@@ -161,13 +164,13 @@ def update_images():
 
         next_beat = None
         for i in range(100):
-            if meanbeat + i*tau - 0.020 > time.monotonic():
+            if meanbeat + i*tau - 0.020-calibration_shift > time.monotonic():
                 next_beat = meanbeat + i*tau
                 break
 
         if next_beat is not None:
             beat_delta = next_beat - time.monotonic()
-            beat_delta = max(beat_delta, 3)
+            beat_delta = min(beat_delta, 3)-calibration_shift
             print(f'waiting {beat_delta*1000:.2f}ms to next beat')
             time.sleep(beat_delta)
         else:
