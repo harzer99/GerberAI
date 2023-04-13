@@ -21,6 +21,8 @@ from torch.autograd import Variable
 
 import tkinter as tk
 from PIL import Image, ImageTk
+import multiprocessing
+
 
 
 class App:
@@ -88,10 +90,10 @@ app = App(root)
 
 GAN_LATENT_DIM = 1000
 CHUNK = 512
-sample_time = 40
-embedding_time = 0.1
+sample_time = 20
+embedding_time = 2
 calibration_shift = 0.12
-stability = 0.5
+stability = 0.8
 chaos = 0
 z_height = 1 + chaos
 batch_size = 15
@@ -111,7 +113,7 @@ embedder = MyAudioEmbedder()
 embedder.eval()
 
 generators = []
-for file in sorted(Path('/home/leonardmuller/GerberAI/generators_leo/').glob('generator_*.pt')):
+for file in sorted(Path('/home/leonardmuller/GerberAI/generators/').glob('generator_*.pt')):
     generators.append(torch.load(file, map_location=torch.device('cpu')))
 
 if cuda:
@@ -124,103 +126,145 @@ def recorder_callback(in_data, frame_count, time_info, status_flags):
     audio_deque.append(audio_data)
     return None, pyaudio.paContinue
 
+def get_mean_beat (audio, start_t   ):
+    tempo, beats = librosa.beat.beat_track(y=audio.mean(axis=1), sr=44100, start_bpm=120)
+    if len(beats) == 0:
+        beats_time = [0]
+        print('warn: no beats found, defaulting to start of buffer')
+    else:
+        beats_time = librosa.frames_to_time(beats, sr=44100)
+    meanbeat = start_t - len(audio) / 44100 + beats_time[-1]
 
-stream = audio.open(format=pyaudio.paFloat32,
+    if tempo != 0:
+        tau = 1 / tempo * 60
+    else:  
+        tau = 2
+        print('warn: no tempo found, defaulting to tau=2s')
+    return (meanbeat, tau)
+
+def my_thread_func(beat_arg_queue, beat_result_queue):
+    while True:
+        
+        # Wait for new arguments to be added to the queue
+
+        args = beat_arg_queue.get()
+        t = time.monotonic()
+        # Execute the function with the new arguments
+        result = get_mean_beat(*args)
+
+        # Add the result to the result queue
+        if not beat_result_queue.empty():
+            old = beat_result_queue.get()
+        beat_result_queue.put(result)
+        print(time.monotonic()-t)
+
+        time.sleep(0.1)
+    return
+
+
+if __name__ == '__main__':
+    stream = audio.open(format=pyaudio.paFloat32,
                     channels=2,
                     rate=44100,
-                    input_device_index = 4, #audio.get_default_output_device_info()['index'],
+                    input_device_index = 2, #audio.get_default_output_device_info()['index'],
                     input=True,
                     stream_callback=recorder_callback,
                     frames_per_buffer=CHUNK)
+    multiprocessing.set_start_method('spawn')
+    beat_result_queue = multiprocessing.Queue()
+    beat_arg_queue = multiprocessing.Queue()
+    
+    beat_process= multiprocessing.Process(target = my_thread_func, args=(beat_arg_queue, beat_result_queue,))
+    beat_process.start()
+    current_generator_index = len(generators) // 2
+    meanbeat = time.monotonic()-1
+    tau = 1
+    def update_images():
+        global current_generator_index
+        start_t = time.monotonic()
+        t = start_t
+        #print(f'peek buffer; +{0:.2f}ms')
+        with torch.no_grad():
+            beat_start = time.monotonic()
+            
+            audio = np.concatenate(audio_deque)
+            beat_arg_queue.put((audio, start_t))
+            t_switch = time.monotonic()
+            embedder.eval()
+            r = np.random.choice([-1, 0, 1], p=[(1-stability)/2, stability, (1-stability)/2])
+            if r != 0:
+                generators[current_generator_index].cpu()
+
+            current_generator_index = current_generator_index + r
+            if current_generator_index < 0:
+                current_generator_index = 0
+            if current_generator_index >= len(generators):
+                current_generator_index = len(generators) - 1
+
+            generator = generators[current_generator_index]
+            if cuda:
+                generator.cuda()
+            generator.eval()
+
+            t_switch = time.monotonic()-t_switch
+            
+
+            
+            
+            #print(f'beat detection (tempo: {tempo:.2f}bpm; tau: {tau:.2f}); +{(time.monotonic() - t) * 1000:.2f}ms')
+            
+
+            track = torch.tensor(resampy.resample(
+                audio[-int(embedding_time*44100):],
+                sr_orig=44100,
+                sr_new=48000,
+                filter='kaiser_fast'
+            ))
+            
+            if cuda:
+                track = track.cuda()
+            #print(f'audio preprocessing; +{(time.monotonic() - t) * 1000:.2f}ms')
+            t = time.monotonic()
+            t_gen = time.monotonic()
+            track_emb = embedder(torch.stack([track]))#+ torch.tensor(np.random.normal(0, chaos, (1, 512))).cuda().float()
+            #print(f'embedding done; +{(time.monotonic() - t) * 1000:.2f}ms')
+            t = time.monotonic()
+            t_gen = time.monotonic()-t_gen
+            
+            z = FloatTensor(np.random.normal(0, z_height, (batch_size, GAN_LATENT_DIM)))
+            gen_imgs = generator(z, track_emb.expand(batch_size, -1)).cpu().to(torch.uint8)
+            #print(f'{batch_size} images done; +{(time.monotonic() - t) * 1000:.2f}ms')
+            t = time.monotonic()
+            grid = torchvision.utils.make_grid(gen_imgs, nrow=5, padding=0)
+            # out_img = scale_img(grid.numpy(), 5)
+            out_img = torchvision.transforms.ToPILImage()(grid)
+            #print(f'post-processing done; +{(time.monotonic() - t) * 1000:.2f}ms')
+            beat_time = time.monotonic()-beat_start
+            
+            t_get = time.monotonic()
+            
+            meanbeat, tau = beat_result_queue.get()
+            t_get = time.monotonic()-t_get
+
+            next_beat = None
+            for i in range(100):
+                if meanbeat + (i)*tau - 0-calibration_shift > time.monotonic():
+                    next_beat = meanbeat + i*tau
+                    break
+
+            if next_beat is not None:
+                beat_delta = next_beat - time.monotonic()
+                beat_delta = min(beat_delta, 1)-calibration_shift
+                print(f'waiting {beat_delta*1000:.2f}ms to next beat, runtime {beat_time * 1000:.2f}ms, switching {t_switch*1000:.2f}, getting beats {t_get*1000:.2f}, generating {t_gen*1000:.2f}, nvidia{cuda} generator index {current_generator_index}')
+                time.sleep(beat_delta)
+            else:
+                print('warn: no beat found!')
+
+            app.change_image(out_img)
+
+        #print(f'waiting {10:.2f}ms to next invocation')
+        root.after(10, update_images)
 
 
-current_generator_index = len(generators) // 2
-def update_images():
-    global current_generator_index
-    start_t = time.monotonic()
-    t = start_t
-    print(f'peek buffer; +{0:.2f}ms')
-    with torch.no_grad():
-        embedder.eval()
-
-        r = np.random.choice([-1, 0, 1], p=[(1-stability)/2, stability, (1-stability)/2])
-        if r != 0:
-            generators[current_generator_index].cpu()
-
-        current_generator_index = current_generator_index + r
-        if current_generator_index < 0:
-            current_generator_index = 0
-        if current_generator_index >= len(generators):
-            current_generator_index = len(generators) - 1
-
-        generator = generators[current_generator_index]
-        if cuda:
-            generator.cuda()
-        generator.eval()
-
-        audio = np.concatenate(audio_deque)
-
-        tempo, beats = librosa.beat.beat_track(y=audio.mean(axis=1), sr=44100, start_bpm=120)
-        if len(beats) == 0:
-            beats_time = [0]
-            print('warn: no beats found, defaulting to start of buffer')
-        else:
-            beats_time = librosa.frames_to_time(beats, sr=44100)
-        meanbeat = start_t - len(audio) / 44100 + beats_time[-1]
-
-        if tempo != 0:
-            tau = 1 / tempo * 60
-        else:
-            tau = 2
-            print('warn: no tempo found, defaulting to tau=2s')
-        print(f'beat detection (tempo: {tempo:.2f}bpm; tau: {tau:.2f}); +{(time.monotonic() - t) * 1000:.2f}ms')
-        t = time.monotonic()
-
-        track = torch.tensor(resampy.resample(
-            audio[-int(embedding_time*44100):],
-            sr_orig=44100,
-            sr_new=48000,
-            filter='kaiser_fast'
-        ))
-        if cuda:
-            track = track.cuda()
-        print(f'audio preprocessing; +{(time.monotonic() - t) * 1000:.2f}ms')
-        t = time.monotonic()
-
-        track_emb = embedder(torch.stack([track]))+ torch.tensor(np.random.normal(0, chaos, (1, 512))).cuda().float()
-        print(f'embedding done; +{(time.monotonic() - t) * 1000:.2f}ms')
-        t = time.monotonic()
-
-        
-        z = FloatTensor(np.random.normal(0, z_height, (batch_size, GAN_LATENT_DIM)))
-        gen_imgs = generator(z, track_emb.expand(batch_size, -1)).cpu().to(torch.uint8)
-        print(f'{batch_size} images done; +{(time.monotonic() - t) * 1000:.2f}ms')
-        t = time.monotonic()
-
-        grid = torchvision.utils.make_grid(gen_imgs, nrow=5, padding=0)
-        # out_img = scale_img(grid.numpy(), 5)
-        out_img = torchvision.transforms.ToPILImage()(grid)
-        print(f'post-processing done; +{(time.monotonic() - t) * 1000:.2f}ms')
-
-        next_beat = None
-        for i in range(100):
-            if meanbeat + i*tau - 0.020-calibration_shift > time.monotonic():
-                next_beat = meanbeat + i*tau
-                break
-
-        if next_beat is not None:
-            beat_delta = next_beat - time.monotonic()
-            beat_delta = min(beat_delta, 3)-calibration_shift
-            print(f'waiting {beat_delta*1000:.2f}ms to next beat')
-            time.sleep(beat_delta)
-        else:
-            print('warn: no beat found!')
-
-        app.change_image(out_img)
-
-    print(f'waiting {10:.2f}ms to next invocation')
-    root.after(10, update_images)
-
-
-root.after(500, update_images)
-root.mainloop()
+    root.after(500, update_images)
+    root.mainloop()
