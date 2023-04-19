@@ -4,7 +4,7 @@ GerberAI is a program generates an image from a short audio input. It uses Torch
 # Requirements
 A Nvidia GPU is suggested. A fast CPU might just be enough though.
 We recommend installing Anaconda and creating a new environment.
-install Cuda:
+First install pytorch and Cuda:
 ```
 conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cuda=11.6 -c pytorch -c nvidia
 ```
