@@ -1,5 +1,5 @@
 # Overview
-GerberAI is a program generates an image from a short audio input. It uses Torchopenl3 to embedd the audio data and then generates an image via a custom trained GAN. It also predicts the next beat and pushes the Image in sync with it. 
+GerberAI is a program generates an image from a short audio input. It uses Torchopenl3 to embedd the audio data and then generates an image via a custom trained GAN. It also predicts the next beat and pushes the image in sync with it. 
 
 # Requirements
 A Nvidia GPU is suggested. A fast CPU might just be enough though.
