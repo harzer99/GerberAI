@@ -3,6 +3,7 @@ GerberAI is a program generates an image from a short audio input. It uses Torch
 
 # Requirements
 A Nvidia GPU is suggested. A fast CPU might just be enough though.
+Run the requirements.txt file in the root directory.
 
 # Running the program
 You first need to modify the presenter.py:
