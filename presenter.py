@@ -23,7 +23,61 @@ import tkinter as tk
 from PIL import Image, ImageTk
 import multiprocessing
 
+GAN_LATENT_DIM = 1000
+CHUNK = 512
+sample_time = 20            #for the beatanalysis
+embedding_time = 2          #for the audio embedder
+calibration_shift = 0.12    #adjust to compensate for output latency, so that each image is pushed on a beat
+stability = 0.8             #probability to stay with the current generator
+chaos = 0                   #noise added onto the embedding vector that makes variance between frames larger
+z_height = 1 + chaos        #noise that is added for each subimage. This makes them vary within a frame
+batch_size = 15             #number of subimages in each frame
+device_index = 2            #change to your audio device. it should print a list of audio devices available when you run this script
 
+# Calculate the position of the window on the second screen
+second_screen_x = 1920
+second_screen_y = 0
+
+def recorder_callback(in_data, frame_count, time_info, status_flags):
+    audio_data = np.frombuffer(in_data, dtype=np.float32).reshape(-1, 2)
+    audio_deque.append(audio_data)
+    return None, pyaudio.paContinue
+
+def get_mean_beat (audio, start_t   ):
+    tempo, beats = librosa.beat.beat_track(y=audio.mean(axis=1), sr=44100, start_bpm=120)
+    if len(beats) == 0:
+        beats_time = [0]
+        print('warn: no beats found, defaulting to start of buffer')
+    else:
+        beats_time = librosa.frames_to_time(beats, sr=44100)
+    meanbeat = start_t - len(audio) / 44100 + beats_time[-1]
+
+    if tempo != 0:
+        tau = 1 / tempo * 60
+    else:  
+        tau = 2
+        print('warn: no tempo found, defaulting to tau=2s')
+    return (meanbeat, tau)
+
+#putting the beat analysis on a different process
+def my_thread_func(beat_arg_queue, beat_result_queue):
+    while True:
+        
+        # Wait for new arguments to be added to the queue
+
+        args = beat_arg_queue.get()
+        t = time.monotonic()
+        # Execute the function with the new arguments
+        result = get_mean_beat(*args)
+
+        # Add the result to the result queue
+        if not beat_result_queue.empty():
+            old = beat_result_queue.get()
+        beat_result_queue.put(result)
+        print(time.monotonic()-t)
+
+        time.sleep(0.1)
+    return
 
 class App:
     def __init__(self, master):
@@ -68,7 +122,6 @@ class App:
         self.canvas.delete('all')
         self.canvas.create_image(x, y, image=self.photo, anchor=tk.NW)
 
-
 root = tk.Tk()
 # Get the width and height of the primary screen
 primary_screen_width = root.winfo_screenwidth()
@@ -77,26 +130,10 @@ primary_screen_height = root.winfo_screenheight()
 # Set the window attributes to fullscreen
 root.attributes("-fullscreen", True)
 
-#canvas = tk.Canvas(root)
-#canvas.pack(fill=tk.BOTH, expand=True)
-
-# Calculate the position of the window on the second screen
-second_screen_x = 1920
-second_screen_y = 0
-
 # Set the window geometry to the position of the second screen
 root.geometry("1920x1080+{}+{}".format(second_screen_x, second_screen_y))
 app = App(root)
 
-GAN_LATENT_DIM = 1000
-CHUNK = 512
-sample_time = 20
-embedding_time = 2
-calibration_shift = 0.12
-stability = 0.8
-chaos = 0
-z_height = 1 + chaos
-batch_size = 15
 
 audio = pyaudio.PyAudio()
 for ii in range(audio.get_device_count()):
@@ -112,6 +149,7 @@ LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
 embedder = MyAudioEmbedder()
 embedder.eval()
 
+#Change this path to your folder
 generators = []
 for file in sorted(Path('/home/leonardmuller/GerberAI/generators/').glob('generator_*.pt')):
     generators.append(torch.load(file, map_location=torch.device('cpu')))
@@ -121,52 +159,11 @@ if cuda:
 
 audio_deque = collections.deque(maxlen=int(44100 / CHUNK * sample_time))
 
-def recorder_callback(in_data, frame_count, time_info, status_flags):
-    audio_data = np.frombuffer(in_data, dtype=np.float32).reshape(-1, 2)
-    audio_deque.append(audio_data)
-    return None, pyaudio.paContinue
-
-def get_mean_beat (audio, start_t   ):
-    tempo, beats = librosa.beat.beat_track(y=audio.mean(axis=1), sr=44100, start_bpm=120)
-    if len(beats) == 0:
-        beats_time = [0]
-        print('warn: no beats found, defaulting to start of buffer')
-    else:
-        beats_time = librosa.frames_to_time(beats, sr=44100)
-    meanbeat = start_t - len(audio) / 44100 + beats_time[-1]
-
-    if tempo != 0:
-        tau = 1 / tempo * 60
-    else:  
-        tau = 2
-        print('warn: no tempo found, defaulting to tau=2s')
-    return (meanbeat, tau)
-
-def my_thread_func(beat_arg_queue, beat_result_queue):
-    while True:
-        
-        # Wait for new arguments to be added to the queue
-
-        args = beat_arg_queue.get()
-        t = time.monotonic()
-        # Execute the function with the new arguments
-        result = get_mean_beat(*args)
-
-        # Add the result to the result queue
-        if not beat_result_queue.empty():
-            old = beat_result_queue.get()
-        beat_result_queue.put(result)
-        print(time.monotonic()-t)
-
-        time.sleep(0.1)
-    return
-
-
 if __name__ == '__main__':
     stream = audio.open(format=pyaudio.paFloat32,
                     channels=2,
                     rate=44100,
-                    input_device_index = 2, #audio.get_default_output_device_info()['index'],
+                    input_device_index = device_index, #audio.get_default_output_device_info()['index'],
                     input=True,
                     stream_callback=recorder_callback,
                     frames_per_buffer=CHUNK)

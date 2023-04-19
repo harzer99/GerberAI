@@ -51,12 +51,5 @@ class Beat_detector:
             print('Estimated tempo: {:.2f} bpm, runtime:{:.2f} '.format(tempo, runtime,))
             print(self.futurebeats)
     
-sr=5500
-update_time = 1.0
-analyze_time = 20.0
-
-analyzer = Beat_detector(sr, update_time, analyze_time)
-
-print(analyzer.futurebeats)
 
 
