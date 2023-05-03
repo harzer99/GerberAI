@@ -1,4 +1,5 @@
 import numpy as np
+import sys
 import pytube as pt
 import librosa
 import os
@@ -6,6 +7,9 @@ from tqdm import tqdm
 from multiprocessing.pool import Pool
 import subprocess
 from functools import partial
+sys.path.append(os.getcwd())
+from presenter import create_directories
+
 
 
 def single_video_download(video_url):
@@ -28,7 +32,7 @@ def single_video_download(video_url):
     except:
         print('skipping song')
 
-
+#multiprocessing function for analyze method
 def export_frame(beat, sr, vidfile, audio):
     seek = beat/sr
     image_path = f'{image_directory}\\{beat + len(audio)}.png'
@@ -81,6 +85,7 @@ class Video_Prepper():
         self.training_window = training_window
         self.output_directory = output_directory
     
+    #downloads all 
     def download(self, playlist_file):
         print('Collecting playlist')
         with open(playlist_file, 'r') as out:
@@ -99,6 +104,7 @@ class Video_Prepper():
                 i += 1
                 #print('Download')
 
+    #creates snippets before beats. Saves them all in large numpy file
     def analyze(self):
         audio = np.array([], dtype  = 'float32')
         flags = np.array([], dtype = 'int64')
@@ -148,26 +154,21 @@ class Video_Prepper():
         pool.join()
         print('finished')
         
-###########################################################
-#these two paths have to be added. It will create 
-###########################################################
 
-playlist_file = 'youtubescraper\\videolists\\hate_podcast.txt'
-main_directory = 'C:\\GerberAI'
+
 
 
 ###########################################################
 #creating all the directories
-video_directory = main_directory +'\\downloaded_videos'
-audio_directory = main_directory +'\\downloaded_audios'
-image_directory = main_directory + '\\images'
-snippet_directory = main_directory +'\\snippets'
-imgen_output = main_directory +'\\imggen_output'
+directories = create_directories.Directories().directories
+playlist_file = os.path.join(directories['videolists'], 'motionvids.txt')
+main_directory = directories['main']
+video_directory = directories['downloaded_videos']
+audio_directory = directories['downloaded_audios']
+image_directory = main_directory
+snippet_directory = directories ['snippets']
+imgen_output = directories['imggen_output']
 
-os.makedirs(video_directory, exist_ok = True )
-os.makedirs(audio_directory, exist_ok = True)
-os.makedirs(image_directory, exist_ok = True)
-os.makedirs(snippet_directory, exist_ok = True)
 
 
 if __name__ == '__main__':

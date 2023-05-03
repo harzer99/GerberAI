@@ -1,18 +1,24 @@
 import numpy as np
+import sys
 import os
 import subprocess
-import math
 import json
 import cv2
-import scipy.io.wavfile
 import matplotlib.pyplot as plt
 import pytube as pt
 from multiprocessing.pool import Pool
 from tqdm import tqdm
 import multiprocessing
+sys.path.append(os.getcwd())
 
-stills_path = 'videolists\\stills.txt'
-motions_path = 'videolists\\motionvids.txt'
+from presenter import create_directories
+
+directories = create_directories.Directories().directories
+main_directory = directories['main']
+
+os.makedirs(main_directory + '/videolists', exist_ok = True )
+stills_path = os.path.join(directories['videolists'],'stills.txt')
+motions_path = os.path.join(directories['videolists'], 'motionvids.txt')
 
 open(stills_path, 'a')
 open(motions_path, 'a')
@@ -115,6 +121,6 @@ class Video_Scraper():
     
                 
 if __name__ == '__main__':
-    playlisturl = open('youtubescraper\\playlisturl.txt', 'r').read()
-    myvideoscraper = Video_Scraper(playlisturl)
+    playlisturl = open(os.path.join(directories['videolists'],'playlist_url.txt'), 'r').read()
+    myvideoscraper = Video_Scraper(directories['videolists'])
     myvideoscraper.run()
